@@ -102,9 +102,9 @@ namespace WinCred.Commands
                 }
                 catch (Win32Exception exception) when (types == null && exception.NativeErrorCode == NativeMethods.ERROR_INVALID_PARAMETER)
                 {
-                    // Observed on Windows: CredReadW returns ERROR_INVALID_PARAMETER for some types when it gets a
-                    // name that Generic accepts. Windows rejects the name for that type, so no credential of that
-                    // type can have it. Without -Type, skip that type; with -Type, report the error.
+                    // Measured: CredReadW returns ERROR_INVALID_PARAMETER for DomainExtended with a plain name
+                    // such as 'WinCred.Probe.none'; the other types return ERROR_NOT_FOUND. A type that rejects the
+                    // name cannot hold a credential with it. Without -Type, skip that type; with -Type, report it.
                     rejected = exception;
                     rejectedCount++;
                     continue;

@@ -11,7 +11,13 @@
     'Pester'                       = @{ Version = '6.2.0'; SignerThumbprint = '147C2FD397677DC76DD198E83E7D9D234AA59D1A' }
 
     # Microsoft Root Certificate Authority 2011 and 2010
-    'PSScriptAnalyzer'             = @{ Version = '1.25.0'; RootThumbprint = @('8F43288AD272F3103B6FB1428485EA3014C0BCFE', '3B1EFD3A66EA28B16697394703A72CA340A05BD5') }
+    'PSScriptAnalyzer'             = @{
+        Version        = '1.25.0'
+        RootThumbprint = @('8F43288AD272F3103B6FB1428485EA3014C0BCFE', '3B1EFD3A66EA28B16697394703A72CA340A05BD5')
+        # Measured: signed by 'CN=Json.NET (.NET Foundation)' under DigiCert, not Microsoft. Pinned to that
+        # certificate (valid until 3 Nov 2027) rather than trusting the DigiCert root for every file.
+        FileSigners    = @{ 'Newtonsoft.Json.dll' = @('1A9FF7E5BDC4E3E5E2F14E4B2DA6029C5AE58DBF') }
+    }
     'Microsoft.PowerShell.PlatyPS' = @{
         Version        = '1.0.3'
         RootThumbprint = @('8F43288AD272F3103B6FB1428485EA3014C0BCFE', '3B1EFD3A66EA28B16697394703A72CA340A05BD5')
