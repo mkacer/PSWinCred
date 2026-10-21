@@ -24,56 +24,71 @@ namespace PSCredentialManager.Cmdlet
 
             string password;
             int index;
-            byte[] buf;
             char[] cBuf;
             int count;
 
-            do
+            using (RandomNumberGenerator rng = new RNGCryptoServiceProvider())
             {
-                buf = new byte[length];
-                cBuf = new char[length];
-                count = 0;
-
-                (new RNGCryptoServiceProvider()).GetBytes(buf);
-
-                for (int iter = 0; iter < length; iter++)
+                do
                 {
-                    int i = (int)(buf[iter] % 87);
-                    if (i < 10)
-                        cBuf[iter] = (char)('0' + i);
-                    else if (i < 36)
-                        cBuf[iter] = (char)('A' + i - 10);
-                    else if (i < 62)
-                        cBuf[iter] = (char)('a' + i - 36);
-                    else
-                    {
-                        cBuf[iter] = punctuations[i - 62];
-                        count++;
-                    }
-                }
+                    cBuf = new char[length];
+                    count = 0;
 
-                if (count < numberOfNonAlphanumericCharacters)
-                {
-                    int j, k;
-                    Random rand = new Random();
-
-                    for (j = 0; j < numberOfNonAlphanumericCharacters - count; j++)
+                    for (int iter = 0; iter < length; iter++)
                     {
-                        do
+                        int i = GetRandomInt(rng, 87);
+                        if (i < 10)
+                            cBuf[iter] = (char)('0' + i);
+                        else if (i < 36)
+                            cBuf[iter] = (char)('A' + i - 10);
+                        else if (i < 62)
+                            cBuf[iter] = (char)('a' + i - 36);
+                        else
                         {
-                            k = rand.Next(0, length);
+                            cBuf[iter] = punctuations[i - 62];
+                            count++;
                         }
-                        while (!Char.IsLetterOrDigit(cBuf[k]));
-
-                        cBuf[k] = punctuations[rand.Next(0, punctuations.Length)];
                     }
-                }
 
-                password = new string(cBuf);
+                    if (count < numberOfNonAlphanumericCharacters)
+                    {
+                        int j, k;
+
+                        for (j = 0; j < numberOfNonAlphanumericCharacters - count; j++)
+                        {
+                            do
+                            {
+                                k = GetRandomInt(rng, length);
+                            }
+                            while (!Char.IsLetterOrDigit(cBuf[k]));
+
+                            cBuf[k] = punctuations[GetRandomInt(rng, punctuations.Length)];
+                        }
+                    }
+
+                    password = new string(cBuf);
+                }
+                while (IsDangerousString(password, out index));
             }
-            while (IsDangerousString(password, out index));
 
             return password;
+        }
+
+        // Returns a uniform random int in [0, maxExclusive) using rejection sampling to avoid modulo bias
+        private static int GetRandomInt(RandomNumberGenerator rng, int maxExclusive)
+        {
+            byte[] buf = new byte[4];
+            uint limit = uint.MaxValue - (uint.MaxValue % (uint)maxExclusive);
+            uint value;
+
+            do
+            {
+                rng.GetBytes(buf);
+                value = BitConverter.ToUInt32(buf, 0);
+            }
+            while (value >= limit);
+
+            return (int)(value % (uint)maxExclusive);
         }
 
         private static bool IsAtoZ(char c)

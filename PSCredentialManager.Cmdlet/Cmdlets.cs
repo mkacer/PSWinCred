@@ -8,6 +8,7 @@ using PSCredentialManager.Api.Extensions;
 using PSCredentialManager.Common.Exceptions;
 using System.Collections.Generic;
 using System.Security;
+using System.Runtime.InteropServices;
 using PSCredentialManager.Cmdlet.Extensions;
 
 namespace PSCredentialManager.Cmdlet
@@ -117,7 +118,7 @@ namespace PSCredentialManager.Cmdlet
                     else
                     {
                         //write credential object to pipeline
-                        WriteObject(credential);
+                        WriteObject(credential, true);
                     }
                 }
                 catch (Exception exception)
@@ -145,6 +146,7 @@ namespace PSCredentialManager.Cmdlet
                 {
                     ErrorRecord errorRecord = new ErrorRecord(exception, "1", ErrorCategory.InvalidOperation, Target);
                     WriteError(errorRecord);
+                    shouldContinue = false;
                 }
 
                 if (shouldContinue)
@@ -274,8 +276,8 @@ namespace PSCredentialManager.Cmdlet
                 if (byteArray.Length > c_maxPasswordBytes)
                 {
                     Exception exception = new ArgumentOutOfRangeException($"Password", $"The specified password has exceeded {c_maxPasswordBytes} bytes");
-                    ErrorRecord error = new ErrorRecord(exception, "1", ErrorCategory.InvalidArgument, Password);
-                    WriteError(error);
+                    ErrorRecord error = new ErrorRecord(exception, "1", ErrorCategory.InvalidArgument, "Password");
+                    ThrowTerminatingError(error);
                 }
             }
 
@@ -290,7 +292,7 @@ namespace PSCredentialManager.Cmdlet
                 {
                     Exception exception = new ArgumentOutOfRangeException($"SecurePassword", $"The specified password has exceeded {c_maxPasswordBytes} bytes");
                     ErrorRecord error = new ErrorRecord(exception, "1", ErrorCategory.InvalidArgument, "SecurePassword");
-                    WriteError(error);
+                    ThrowTerminatingError(error);
                 }
             }
         }
@@ -309,6 +311,7 @@ namespace PSCredentialManager.Cmdlet
                     Exception exception = new ArgumentOutOfRangeException($"Credentials", $"The specified password has exceeded {c_maxPasswordBytes} bytes");
                     ErrorRecord error = new ErrorRecord(exception, "1", ErrorCategory.InvalidArgument, "Credentials");
                     WriteError(error);
+                    return;
                 }
             }
 
@@ -344,6 +347,14 @@ namespace PSCredentialManager.Cmdlet
             {
                 ErrorRecord errorRecord = new ErrorRecord(exception, "1", ErrorCategory.InvalidOperation, credential);
                 WriteError(errorRecord);
+            }
+            finally
+            {
+                //Zero the unmanaged password copy and free all unmanaged strings
+                Marshal.ZeroFreeCoTaskMemUnicode(nativeCredential.CredentialBlob);
+                Marshal.FreeCoTaskMem(nativeCredential.TargetName);
+                Marshal.FreeCoTaskMem(nativeCredential.UserName);
+                Marshal.FreeCoTaskMem(nativeCredential.Comment);
             }
         }
 

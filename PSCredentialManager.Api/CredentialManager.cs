@@ -89,8 +89,15 @@ namespace PSCredentialManager.Api
 
             if (read)
             {
-                CriticalCredentialHandle credHandle = new CriticalCredentialHandle(pCredentials);
-                return credHandle.GetCredentials(count, includeClearPassword, includeSecurePassword);
+                using (CriticalCredentialHandle credHandle = new CriticalCredentialHandle(pCredentials))
+                {
+                    return credHandle.GetCredentials(count, includeClearPassword, includeSecurePassword);
+                }
+            }
+            else if (lastError == 1168)
+            {
+                // ERROR_NOT_FOUND: the store holds no credentials
+                return new Credential[0];
             }
             else
             {

@@ -42,16 +42,8 @@ namespace PSCredentialManager.Api.Extensions
                         
                         for(int i=0, size = (int)nativeCredential.CredentialBlobSize / 2; i< size; i++)
                         {
-                            string singlesign = Marshal.PtrToStringUni(nativeCredential.CredentialBlob + (i*2), 1);
-                            if(singlesign.Length > 0)
-                            {
-                                credential.SecurePassword.AppendChar(singlesign[0]);
-                            }
-                            singlesign = null;
-                            GC.Collect();
+                            credential.SecurePassword.AppendChar((char)Marshal.ReadInt16(nativeCredential.CredentialBlob, i * 2));
                         }
-
-                        GC.Collect();
                     }
                 }
                 else
