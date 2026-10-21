@@ -79,7 +79,7 @@ You need the .NET SDK from [global.json](global.json), and Windows for the tests
 
 ```powershell
 dotnet test --solution WinCred.slnx        # Native-layer unit tests (MSTest on Microsoft.Testing.Platform); net462 needs Windows
-./tools/Install-Tools.ps1                  # Pinned Pester, PSScriptAnalyzer and PlatyPS into .tools, signatures verified
+pwsh -File ./tools/Install-Tools.ps1       # Pinned Pester, PSScriptAnalyzer and PlatyPS into .tools, signatures verified
 ./tools/Invoke-ScriptAnalysis.ps1          # PSScriptAnalyzer with PSScriptAnalyzerSettings.psd1
 ./build.ps1                                # Module with help into out/WinCred
 
@@ -89,7 +89,7 @@ pwsh -NoProfile -NonInteractive -File ./tests/Invoke-Tests.ps1
 pwsh -File ./tests/Invoke-Tests.ps1 -ExcludeTag Store   # Without touching your credential store
 ```
 
-Tool versions are pinned in [tools/tools.psd1](tools/tools.psd1). `Install-Tools.ps1` uses PSResourceGet, which ships with PowerShell 7.4+; in Windows PowerShell 5.1, run `Install-Module Microsoft.PowerShell.PSResourceGet -Scope CurrentUser` first. Help is written in [Microsoft.PowerShell.PlatyPS](https://github.com/PowerShell/platyPS) markdown; PlatyPS 1.0 does not write parameter default values into the compiled help, so each description states its default. The version number MUST be changed in both `Directory.Build.props` and `src/WinCred/WinCred.psd1`; `build.ps1` fails when they differ.
+Tool versions are pinned in [tools/tools.psd1](tools/tools.psd1). `Install-Tools.ps1` uses PSResourceGet, which ships with PowerShell 7.4+, so run it with `pwsh`; the saved tools are imported by path and work in Windows PowerShell 5.1 too. To run it in Windows PowerShell 5.1 instead, first run `Install-Module Microsoft.PowerShell.PSResourceGet -Scope CurrentUser`. Help is written in [Microsoft.PowerShell.PlatyPS](https://github.com/PowerShell/platyPS) markdown; PlatyPS 1.0 does not write parameter default values into the compiled help, so each description states its default. The version number MUST be changed in both `Directory.Build.props` and `src/WinCred/WinCred.psd1`; `build.ps1` fails when they differ.
 
 GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the unit tests, PSScriptAnalyzer and the build, then the Pester tests in Windows PowerShell 5.1 and PowerShell 7.4 and 7.6. A tag starting with `v` creates a draft release with WinCred.zip. [CodeQL](.github/workflows/codeql.yml) analyzes the C# code and the workflows on every push, pull request and weekly. [Dependabot](.github/dependabot.yml) proposes updates to the pinned Actions and NuGet packages after they are 14 days old.
 

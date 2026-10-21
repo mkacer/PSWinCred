@@ -1,5 +1,4 @@
 #Requires -Version 5.1
-#Requires -Modules Microsoft.PowerShell.PSResourceGet
 <#
 .SYNOPSIS
     Saves the pinned build and test tools to .tools and verifies their signatures.
@@ -8,7 +7,8 @@
     module manifest, MUST carry a valid Authenticode signature, and the manifest MUST be signed by the
     expected publisher. Any other result stops the script, so an unexpected package is never imported.
 
-    Uses PSResourceGet, which ships with PowerShell 7.4 and later. In Windows PowerShell 5.1, install it first:
+    Uses PSResourceGet, which ships with PowerShell 7.4 and later. Run this script with pwsh; the saved tools
+    then work in both editions. To run it in Windows PowerShell 5.1 instead, install PSResourceGet first:
     Install-Module Microsoft.PowerShell.PSResourceGet -Scope CurrentUser
 .PARAMETER Path
     Folder to save the tools in. Defaults to .tools at the repository root.
@@ -47,6 +47,12 @@ function Assert-ToolSignature {
     if ($Tool.SignerSubject -and $signer.Subject -notlike $Tool.SignerSubject) {
         throw "$ToolName $($Tool.Version) is signed by '$($signer.Subject)', not '$($Tool.SignerSubject)'."
     }
+}
+
+if (-not (Get-Command Save-PSResource -ErrorAction SilentlyContinue)) {
+    throw ("Install-Tools.ps1 needs PSResourceGet (Save-PSResource), which ships with PowerShell 7.4 and later. " +
+        "Run 'pwsh -NoProfile -File ./tools/Install-Tools.ps1'; the saved tools then work in Windows PowerShell 5.1 too. " +
+        "Or install it for Windows PowerShell: Install-Module Microsoft.PowerShell.PSResourceGet -Scope CurrentUser")
 }
 
 $tools = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'tools.psd1')
