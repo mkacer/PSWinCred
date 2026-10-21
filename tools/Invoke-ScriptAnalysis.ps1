@@ -17,8 +17,8 @@ $ErrorActionPreference = 'Stop'
 if (-not $ToolsPath) { $ToolsPath = Join-Path $PSScriptRoot '../.tools' }
 
 $root = Split-Path -Parent $PSScriptRoot
-$version = (Import-PowerShellDataFile (Join-Path $PSScriptRoot 'tools.psd1')).PSScriptAnalyzer.Version
-Import-Module (Join-Path $ToolsPath "PSScriptAnalyzer/$version/PSScriptAnalyzer.psd1") -Force
+Import-Module (Join-Path $PSScriptRoot 'Tools.psm1') -Force
+Import-Tool -Name PSScriptAnalyzer -ToolsPath $ToolsPath
 
 $excluded = '[\\/](\.tools|out|bin|obj|\.git)[\\/]'
 $files = Get-ChildItem -Path $root -Recurse -File -Include '*.ps1', '*.psm1', '*.psd1' |

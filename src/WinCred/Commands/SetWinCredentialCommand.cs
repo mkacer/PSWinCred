@@ -1,47 +1,52 @@
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Management.Automation;
 using System.Security;
-using static WinCred.Native.NativeMethods;
+using WinCred.Native;
 
 namespace WinCred.Commands
 {
     /// <summary>
-    /// Creates a credential in Windows Credential Manager, or replaces the one with the same target and type.
+    /// Changes an existing credential in Windows Credential Manager. Every field that is not specified keeps
+    /// its stored value, including the secret, persistence, alias, attributes and flags.
     /// </summary>
     [Cmdlet(VerbsCommon.Set, "WinCredential", DefaultParameterSetName = SecretSet,
-        SupportsShouldProcess = true, ConfirmImpact = ConfirmImpact.Medium)]
+        SupportsShouldProcess = true, ConfirmImpact = ConfirmImpact.High)]
     [OutputType(typeof(WinCredential))]
     public sealed class SetWinCredentialCommand : PSCmdlet
     {
         private const string SecretSet = "Secret";
         private const string PSCredentialSet = "PSCredential";
 
-        [Parameter(Mandatory = true, Position = 0)]
+        /// <summary>Always literal. Credential objects piped in bind here through their TargetName property.</summary>
+        [Parameter(Mandatory = true, Position = 0, ValueFromPipelineByPropertyName = true)]
+        [Alias("TargetName")]
         [ValidateNotNullOrEmpty]
         public string Target { get; set; } = null!;
 
-        [Parameter(ParameterSetName = SecretSet)]
-        public string? UserName { get; set; }
-
-        /// <summary>
-        /// Not mandatory on purpose: a missing secret MUST fail, not prompt.
-        /// </summary>
-        [Parameter(ParameterSetName = SecretSet)]
-        public SecureString? Secret { get; set; }
-
-        [Parameter(Mandatory = true, ValueFromPipeline = true, ParameterSetName = PSCredentialSet)]
-        public PSCredential Credential { get; set; } = null!;
-
-        [Parameter]
+        [Parameter(ValueFromPipelineByPropertyName = true)]
         [ValidateSet(nameof(CredType.Generic), nameof(CredType.DomainPassword))]
         public CredType Type { get; set; } = CredType.Generic;
 
-        [Parameter]
-        public CredPersist Persist { get; set; } = CredPersist.Session;
+        /// <summary>An empty string removes the user name.</summary>
+        [Parameter(ParameterSetName = SecretSet)]
+        public string? UserName { get; set; }
 
+        [Parameter(ParameterSetName = SecretSet)]
+        public SecureString? Secret { get; set; }
+
+        /// <summary>Sets both the user name and the secret.</summary>
+        [Parameter(Mandatory = true, ParameterSetName = PSCredentialSet)]
+        public PSCredential Credential { get; set; } = null!;
+
+        [Parameter]
+        public CredPersist Persist { get; set; }
+
+        /// <summary>An empty string removes the comment.</summary>
         [Parameter]
         public string? Comment { get; set; }
 
+        /// <summary>Encoding of the new secret; only valid together with one.</summary>
         [Parameter]
         public CredEncoding Encoding { get; set; } = CredEncoding.Unicode;
 
@@ -52,12 +57,69 @@ namespace WinCred.Commands
 
         protected override void ProcessRecord()
         {
-            string? userName = ParameterSetName == PSCredentialSet ? Credential.UserName : UserName;
-            SecureString? secret = ParameterSetName == PSCredentialSet ? Credential.Password : Secret;
+            Dictionary<string, object> bound = MyInvocation.BoundParameters;
+            var update = new CredentialUpdate { Encoding = Encoding };
+            var changes = new List<string>();
 
-            Validate(userName, secret);
+            if (ParameterSetName == PSCredentialSet)
+            {
+                if (Credential.Password == null)
+                {
+                    ThrowTerminatingError(Errors.InvalidArgument(nameof(Credential), "The PSCredential has no password, so there is no secret to store.", "CredentialHasNoSecret", Target));
+                }
+                update.SetUserName = true;
+                update.UserName = Credential.UserName;
+                update.Secret = Credential.Password;
+                changes.Add("user name");
+                changes.Add("secret");
+            }
+            else
+            {
+                if (bound.ContainsKey(nameof(UserName)))
+                {
+                    update.SetUserName = true;
+                    update.UserName = UserName;
+                    changes.Add("user name");
+                }
+                if (bound.ContainsKey(nameof(Secret)))
+                {
+                    if (Secret == null)
+                    {
+                        ThrowTerminatingError(Errors.InvalidArgument(nameof(Secret), "-Secret is null. Omit it to keep the stored secret.", "MissingSecret", Target));
+                    }
+                    update.Secret = Secret;
+                    changes.Add("secret");
+                }
+            }
 
-            if (!ShouldProcess(Target, $"Create or replace {Type} credential with {Persist} persistence"))
+            if (bound.ContainsKey(nameof(Comment)))
+            {
+                update.SetComment = true;
+                update.Comment = Comment;
+                changes.Add("comment");
+            }
+            if (bound.ContainsKey(nameof(Persist)))
+            {
+                update.Persist = Persist;
+                changes.Add($"persistence to {Persist}");
+            }
+
+            if (bound.ContainsKey(nameof(Encoding)) && update.Secret == null)
+            {
+                ThrowTerminatingError(Errors.InvalidArgument(nameof(Encoding), "-Encoding applies to a new secret; specify -Secret or -Credential too.", "EncodingWithoutSecret", Target));
+            }
+            if (changes.Count == 0)
+            {
+                ThrowTerminatingError(Errors.InvalidArgument(nameof(Target), "Specify at least one field to change: -UserName, -Secret, -Credential, -Persist or -Comment.", "NothingToSet", Target));
+            }
+
+            if (update.SetUserName)
+            {
+                ThrowIfInvalid(Errors.CheckUserName(update.UserName, Type, Target));
+            }
+            ThrowIfInvalid(Errors.CheckComment(update.Comment, Target));
+
+            if (!ShouldProcess(Target, $"Change {string.Join(", ", changes)} of {Type} credential"))
             {
                 return;
             }
@@ -65,7 +127,17 @@ namespace WinCred.Commands
             ErrorRecord? error = null;
             try
             {
-                credMan.Write(Target, Type, userName, Comment, Persist, secret!, Encoding);
+                credMan.Update(Target, Type, update);
+            }
+            catch (CredentialNotFoundException exception)
+            {
+                // Like Remove-WinCredential: reported per item, nothing was written
+                WriteError(new ErrorRecord(exception, "CredentialNotFound", ErrorCategory.ObjectNotFound, Target));
+                return;
+            }
+            catch (SecretNotEncodableException exception)
+            {
+                error = new ErrorRecord(exception, "SecretNotEncodable", ErrorCategory.InvalidArgument, Target);
             }
             catch (SecretTooLargeException exception)
             {
@@ -74,11 +146,6 @@ namespace WinCred.Commands
             catch (Win32Exception exception)
             {
                 error = Errors.Native(exception, "WriteFailed", ErrorCategory.WriteError, Target);
-                if (exception.NativeErrorCode == ERROR_INVALID_PARAMETER && Type != CredType.Generic)
-                {
-                    error.ErrorDetails = new ErrorDetails(
-                        $"Windows rejected '{Target}' as a {Type} target: {exception.Message} {Type} targets must be host names, such as server.example.com or *.example.com.");
-                }
             }
 
             if (error != null)
@@ -87,70 +154,18 @@ namespace WinCred.Commands
                 ThrowTerminatingError(error);
             }
 
-            WriteVerbose($"Wrote {Type} credential '{Target}' with {Persist} persistence.");
-
+            WriteVerbose($"Changed {string.Join(", ", changes)} of {Type} credential '{Target}'.");
             if (PassThru)
             {
-                WinCredential? written;
-                try
-                {
-                    written = credMan.Read(Target, Type, includeSecret: false, Encoding);
-                }
-                catch (Win32Exception exception)
-                {
-                    WriteError(Errors.Native(exception, "ReadFailed", ErrorCategory.ReadError, Target));
-                    return;
-                }
-
-                if (written != null)
-                {
-                    WriteObject(written);
-                }
+                NewWinCredentialCommand.WriteStored(this, credMan, Target, Type);
             }
         }
 
-        private void Validate(string? userName, SecureString? secret)
+        private void ThrowIfInvalid(ErrorRecord? error)
         {
-            if (secret == null)
+            if (error != null)
             {
-                ThrowTerminatingError(Errors.InvalidArgument(nameof(Secret),
-                    "Specify the secret with -Secret or -Credential. Set-WinCredential never creates a credential without one.",
-                    "MissingSecret", Target));
-            }
-
-            int maxTarget = Type == CredType.Generic ? MaxGenericTargetLength : MaxDomainTargetLength;
-            if (Target.Length > maxTarget)
-            {
-                ThrowTerminatingError(Errors.InvalidArgument(nameof(Target),
-                    $"The target is {Target.Length} characters; {Type} credentials allow at most {maxTarget}.",
-                    "TargetTooLong", Target));
-            }
-
-            if (Type != CredType.Generic)
-            {
-                foreach (string label in Target.Split('.'))
-                {
-                    if (label.Length > MaxDomainTargetLabelLength)
-                    {
-                        ThrowTerminatingError(Errors.InvalidArgument(nameof(Target),
-                            $"The target has a {label.Length}-character label; {Type} targets are host names, whose dot-separated labels allow at most {MaxDomainTargetLabelLength}.",
-                            "TargetLabelTooLong", Target));
-                    }
-                }
-            }
-
-            if (userName != null && userName.Length > MaxUserNameLength)
-            {
-                ThrowTerminatingError(Errors.InvalidArgument(nameof(UserName),
-                    $"The user name is {userName.Length} characters; at most {MaxUserNameLength} are allowed.",
-                    "UserNameTooLong", Target));
-            }
-
-            if (Comment != null && Comment.Length > MaxCommentLength)
-            {
-                ThrowTerminatingError(Errors.InvalidArgument(nameof(Comment),
-                    $"The comment is {Comment.Length} characters; at most {MaxCommentLength} are allowed.",
-                    "CommentTooLong", Target));
+                ThrowTerminatingError(error);
             }
         }
     }

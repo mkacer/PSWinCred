@@ -3,11 +3,15 @@
 .SYNOPSIS
     Runs the Pester tests against the built module in the current PowerShell edition.
 .DESCRIPTION
-    Imports the pinned Pester from .tools (run tools/Install-Tools.ps1 first) and writes NUnit XML results
+    Verifies and imports the pinned Pester from .tools (run tools/Install-Tools.ps1 first) and writes NUnit XML results
     to out/TestResults. Run it once in powershell.exe and once in pwsh.exe.
 .PARAMETER ExcludeTag
     Skips tests with these tags. 'Store' skips every test that touches the credential store;
     'Help' skips the help tests for a module built with -SkipHelp.
+.PARAMETER IncludePersistent
+    Also runs the tests tagged 'Persistent' and 'Roaming'. They write LocalMachine credentials, which outlive
+    the logon session, and Enterprise credentials, which can roam to other computers with the user profile.
+    The tests remove them, but an interrupted run can leave them behind until the next run.
 #>
 [CmdletBinding()]
 param(
@@ -17,7 +21,9 @@ param(
 
     [string]$ResultPath,
 
-    [string[]]$ExcludeTag
+    [string[]]$ExcludeTag,
+
+    [switch]$IncludePersistent
 )
 
 $ErrorActionPreference = 'Stop'
@@ -28,8 +34,8 @@ if (-not $ModulePath) { $ModulePath = Join-Path $PSScriptRoot '../out/WinCred/Wi
 if (-not $ToolsPath) { $ToolsPath = Join-Path $PSScriptRoot '../.tools' }
 if (-not $ResultPath) { $ResultPath = Join-Path $PSScriptRoot '../out/TestResults' }
 
-$pesterVersion = (Import-PowerShellDataFile (Join-Path $PSScriptRoot '../tools/tools.psd1')).Pester.Version
-Import-Module (Join-Path $ToolsPath "Pester/$pesterVersion/Pester.psd1") -Force
+Import-Module (Join-Path $PSScriptRoot '../tools/Tools.psm1') -Force
+Import-Tool -Name Pester -ToolsPath $ToolsPath
 
 New-Item -Path $ResultPath -ItemType Directory -Force | Out-Null
 $edition = "$($PSVersionTable.PSEdition)-$($PSVersionTable.PSVersion)"
@@ -42,8 +48,12 @@ $configuration.TestResult.Enabled = $true
 $configuration.TestResult.OutputFormat = 'NUnitXml'
 $configuration.TestResult.OutputPath = Join-Path $ResultPath "WinCred-$edition.xml"
 $configuration.TestResult.TestSuiteName = "WinCred ($edition)"
-if ($ExcludeTag) {
-    $configuration.Filter.ExcludeTag = $ExcludeTag
+$excluded = @($ExcludeTag | Where-Object { $_ })
+if (-not $IncludePersistent) {
+    $excluded += 'Persistent', 'Roaming'
+}
+if ($excluded.Count -gt 0) {
+    $configuration.Filter.ExcludeTag = $excluded
 }
 
 Invoke-Pester -Configuration $configuration

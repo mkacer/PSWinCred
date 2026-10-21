@@ -91,20 +91,32 @@ namespace WinCred.Native.Tests
         }
 
         [TestMethod]
-        public void OddLengthBlobDecodesAsUnicodeWithoutThrowing()
+        [DataRow(CredEncoding.Unicode, new byte[] { 0x61, 0x62, 0x63 })]          // odd byte count
+        [DataRow(CredEncoding.Unicode, new byte[] { 0x00, 0xD8, 0x61, 0x00 })]    // lone high surrogate
+        [DataRow(CredEncoding.UTF8, new byte[] { 0x61, 0xC3 })]                   // truncated sequence
+        [DataRow(CredEncoding.UTF8, new byte[] { 0xFF, 0x62 })]                   // invalid byte
+        public void InvalidBlobIsAnErrorNotReplacementCharacters(CredEncoding encoding, byte[] bytes)
         {
-            byte[] utf8 = Encoding.UTF8.GetBytes("abc");
-            IntPtr blob = Marshal.AllocCoTaskMem(utf8.Length);
+            IntPtr blob = Marshal.AllocCoTaskMem(bytes.Length);
             try
             {
-                Marshal.Copy(utf8, 0, blob, utf8.Length);
-                SecureString decoded = BlobEncoding.DecodeToSecureString(blob, (uint)utf8.Length, CredEncoding.Unicode);
-                Assert.AreEqual(2, decoded.Length, "One UTF-16 unit plus one replacement character.");
+                Marshal.Copy(bytes, 0, blob, bytes.Length);
+                var ex = Assert.ThrowsExactly<SecretNotDecodableException>(() => BlobEncoding.DecodeToSecureString(blob, (uint)bytes.Length, encoding));
+                Assert.IsNull(ex.InnerException, "The inner decoder exception would show the secret's bytes.");
             }
             finally
             {
                 Marshal.FreeCoTaskMem(blob);
             }
+        }
+
+        [TestMethod]
+        [DataRow(CredEncoding.Unicode)]
+        [DataRow(CredEncoding.UTF8)]
+        public void LoneSurrogateIsNotEncoded(CredEncoding encoding)
+        {
+            var ex = Assert.ThrowsExactly<SecretNotEncodableException>(() => BlobEncoding.Encode("a\uDC00b".ToSecureString(), encoding, out _));
+            Assert.IsNull(ex.InnerException, "The inner encoder exception would describe the secret's characters.");
         }
 
         [TestMethod]

@@ -55,9 +55,8 @@ foreach ($framework in $frameworks) {
 }
 
 if (-not $SkipHelp) {
-    $platyPS = 'Microsoft.PowerShell.PlatyPS'
-    $platyPSVersion = (Import-PowerShellDataFile (Join-Path $PSScriptRoot 'tools/tools.psd1')).$platyPS.Version
-    Import-Module (Join-Path $ToolsPath "$platyPS/$platyPSVersion/$platyPS.psd1") -Force
+    Import-Module (Join-Path $PSScriptRoot 'tools/Tools.psm1') -Force
+    Import-Tool -Name Microsoft.PowerShell.PlatyPS -ToolsPath $ToolsPath
 
     $markdown = @(Get-ChildItem (Join-Path $PSScriptRoot 'docs/en-US') -Filter '*.md').FullName
     $invalid = @(Test-MarkdownCommandHelp -Path $markdown -DetailView | Where-Object { -not $_.IsValid })

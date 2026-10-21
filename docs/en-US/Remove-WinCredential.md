@@ -31,6 +31,8 @@ Deletes a credential from Windows Credential Manager. If no credential matches t
 
 -Target is always literal. To delete several credentials, pipe them from Get-WinCredential.
 
+The cmdlet asks for confirmation by default, because a deleted credential cannot be recovered. In scripts, add -Confirm:$false.
+
 ## EXAMPLES
 
 ### Example 1: Delete a credential
@@ -43,7 +45,7 @@ PS C:\> Remove-WinCredential -Target backup01
 
 ```powershell
 PS C:\> Get-WinCredential -Target 'test.*' | Remove-WinCredential -WhatIf
-PS C:\> Get-WinCredential -Target 'test.*' | Remove-WinCredential
+PS C:\> Get-WinCredential -Target 'test.*' | Remove-WinCredential -Confirm:$false
 ```
 
 ## PARAMETERS
@@ -72,7 +74,7 @@ HelpMessage: ''
 
 ### -Target
 
-The target name of the credential to delete. Wildcard characters have no special meaning.
+The target name of the credential to delete. Always literal: no character is a wildcard. Credential objects piped to the cmdlet bind here through their TargetName property.
 
 ```yaml
 Type: System.String
@@ -156,11 +158,7 @@ You can pipe a target name to this cmdlet.
 
 ### WinCred.WinCredential
 
-You can pipe credentials from Get-WinCredential.
-
-### WinCred.CredType
-
-You can pipe the Type property of credentials from Get-WinCredential.
+You can pipe credentials from Get-WinCredential. They bind to -Target and -Type through their TargetName and Type properties.
 
 ## OUTPUTS
 
@@ -171,5 +169,6 @@ You can pipe the Type property of credentials from Get-WinCredential.
 ## RELATED LINKS
 
 - [Get-WinCredential](Get-WinCredential.md)
+- [New-WinCredential](New-WinCredential.md)
 - [Set-WinCredential](Set-WinCredential.md)
 - [about_WinCred](about_WinCred.md)

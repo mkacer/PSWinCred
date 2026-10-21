@@ -37,6 +37,7 @@ FormatsToProcess = @('WinCred.Format.ps1xml')
 # Cmdlets to export from this module
 CmdletsToExport = @(
     'Get-WinCredential'
+    'New-WinCredential'
     'Set-WinCredential'
     'Remove-WinCredential'
 )

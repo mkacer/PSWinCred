@@ -4,9 +4,10 @@ using System.Management.Automation;
 namespace WinCred.Commands
 {
     /// <summary>
-    /// Deletes a credential from Windows Credential Manager. Target is always literal.
+    /// Deletes a credential from Windows Credential Manager. Target is always literal. Deleting cannot be
+    /// undone, so it asks for confirmation by default.
     /// </summary>
-    [Cmdlet(VerbsCommon.Remove, "WinCredential", SupportsShouldProcess = true, ConfirmImpact = ConfirmImpact.Medium)]
+    [Cmdlet(VerbsCommon.Remove, "WinCredential", SupportsShouldProcess = true, ConfirmImpact = ConfirmImpact.High)]
     public sealed class RemoveWinCredentialCommand : PSCmdlet
     {
         [Parameter(Mandatory = true, Position = 0, ValueFromPipeline = true, ValueFromPipelineByPropertyName = true)]

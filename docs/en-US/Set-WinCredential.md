@@ -11,16 +11,16 @@ PlatyPS schema version: 2024-05-01
 
 ## SYNOPSIS
 
-Creates or replaces a credential in Windows Credential Manager.
+Changes an existing credential in Windows Credential Manager.
 
 ## SYNTAX
 
 ### Secret (Default)
 
 ```
-Set-WinCredential [-Target] <String> [-UserName <String>] [-Secret <SecureString>]
- [-Type <CredType>] [-Persist <CredPersist>] [-Comment <String>] [-Encoding <CredEncoding>]
- [-PassThru] [-WhatIf] [-Confirm] [<CommonParameters>]
+Set-WinCredential [-Target] <String> [-Type <CredType>] [-UserName <String>] [-Secret <SecureString>]
+ [-Persist <CredPersist>] [-Comment <String>] [-Encoding <CredEncoding>] [-PassThru] [-WhatIf]
+ [-Confirm] [<CommonParameters>]
 ```
 
 ### PSCredential
@@ -37,37 +37,43 @@ This cmdlet has no aliases.
 
 ## DESCRIPTION
 
-Creates a credential in Windows Credential Manager. If a credential with the same target and type exists, it is replaced: every field takes the value of this call.
+Changes an existing credential in Windows Credential Manager. Only the fields you specify change. Every other field keeps its stored value: the user name, the secret, the persistence, the comment, the target alias, the attributes and the flags. An empty string removes the user name or the comment.
 
-You MUST give the secret with -Secret or -Credential. Without one, the cmdlet fails; it never prompts for a secret and never generates one. There is no plain-text secret parameter, so secrets do not end up in command history or transcripts.
+Without -Secret or -Credential, Windows keeps the stored secret without returning it to WinCred, so it is never decrypted into PowerShell.
 
-The credential persists for the logon session unless -Persist says otherwise.
+If the credential does not exist, the cmdlet writes a CredentialNotFound error and creates nothing. To create a credential, use New-WinCredential.
+
+The cmdlet asks for confirmation by default, because it overwrites stored values. In scripts, add -Confirm:$false.
 
 ## EXAMPLES
 
-### Example 1: Store a credential from Get-Credential
+### Example 1: Replace a secret
 
 ```powershell
-PS C:\> Get-Credential -UserName svc-backup | Set-WinCredential -Target backup01 -Persist LocalMachine
+PS C:\> Set-WinCredential -Target backup01 -Secret (Read-Host -AsSecureString -Prompt 'New password')
 ```
 
-### Example 2: Store an API token without a user name
+The user name, persistence and comment stay as they are.
+
+### Example 2: Change only the comment
 
 ```powershell
-PS C:\> Set-WinCredential -Target api.example.com -Secret (Read-Host -AsSecureString -Prompt Token) -Persist LocalMachine
+PS C:\> Set-WinCredential -Target backup01 -Comment 'Rotated 2026-10-21' -Confirm:$false
 ```
 
-### Example 3: Store a secret for a program that reads UTF-8
+### Example 3: Change the persistence of several credentials
 
 ```powershell
-PS C:\> Set-WinCredential -Target myapp -UserName app -Secret (Read-Host -AsSecureString) -Encoding UTF8 -PassThru
+PS C:\> Get-WinCredential -Target 'test.*' -Type Generic | Set-WinCredential -Persist Session
 ```
+
+Each piped credential binds to -Target and -Type, and each change asks for confirmation.
 
 ## PARAMETERS
 
 ### -Comment
 
-A comment stored with the credential. At most 255 characters.
+The new comment. At most 255 characters; control characters are rejected. An empty string removes the comment.
 
 ```yaml
 Type: System.String
@@ -110,7 +116,7 @@ HelpMessage: ''
 
 ### -Credential
 
-The user name and secret as a PSCredential object.
+The new user name and secret as a PSCredential object. Replaces both.
 
 ```yaml
 Type: System.Management.Automation.PSCredential
@@ -121,7 +127,7 @@ ParameterSets:
 - Name: PSCredential
   Position: Named
   IsRequired: true
-  ValueFromPipeline: true
+  ValueFromPipeline: false
   ValueFromPipelineByPropertyName: false
   ValueFromRemainingArguments: false
 DontShow: false
@@ -131,7 +137,7 @@ HelpMessage: ''
 
 ### -Encoding
 
-The encoding to store the secret in. Windows and most programs expect Unicode (UTF-16LE). Use UTF8 only when the program that reads the credential expects UTF-8 bytes. The 2560-byte limit applies to the encoded secret. The default is Unicode.
+The encoding to store the new secret in. Valid only together with -Secret or -Credential. Windows and most programs expect Unicode (UTF-16LE). The default is Unicode.
 
 ```yaml
 Type: WinCred.CredEncoding
@@ -175,11 +181,11 @@ HelpMessage: ''
 
 ### -Persist
 
-How long the credential persists: Session (until logoff), LocalMachine (on this computer), or Enterprise (roams with the user profile). Longer persistence MUST be requested explicitly. The default is Session.
+The new persistence: Session (until logoff), LocalMachine (on this computer), or Enterprise (roams with the user profile). Without it, the stored persistence is kept.
 
 ```yaml
 Type: WinCred.CredPersist
-DefaultValue: Session
+DefaultValue: Stored value
 SupportsWildcards: false
 Aliases: []
 ParameterSets:
@@ -199,7 +205,7 @@ HelpMessage: ''
 
 ### -Secret
 
-The secret as a SecureString. Required in this parameter set, but not marked mandatory, so that a missing secret fails instead of prompting.
+The new secret as a SecureString. Without it, the stored secret is kept; Windows keeps it without returning it to WinCred.
 
 ```yaml
 Type: System.Security.SecureString
@@ -220,19 +226,20 @@ HelpMessage: ''
 
 ### -Target
 
-The target name of the credential. At most 32766 characters for Generic credentials. DomainPassword targets are host names, such as server.example.com or *.example.com: at most 253 characters, with dot-separated labels of at most 63. Wildcard characters have no special meaning.
+The target name of the credential to change. Always literal. Credential objects piped to the cmdlet bind here through their TargetName property.
 
 ```yaml
 Type: System.String
 DefaultValue: None
 SupportsWildcards: false
-Aliases: []
+Aliases:
+- TargetName
 ParameterSets:
 - Name: (All)
   Position: 0
   IsRequired: true
   ValueFromPipeline: false
-  ValueFromPipelineByPropertyName: false
+  ValueFromPipelineByPropertyName: true
   ValueFromRemainingArguments: false
 DontShow: false
 AcceptedValues: []
@@ -241,7 +248,7 @@ HelpMessage: ''
 
 ### -Type
 
-The credential type. Only Generic and DomainPassword can be written. The default is Generic.
+The type of the credential to change. Only Generic and DomainPassword can be written. The default is Generic.
 
 ```yaml
 Type: WinCred.CredType
@@ -253,7 +260,7 @@ ParameterSets:
   Position: Named
   IsRequired: false
   ValueFromPipeline: false
-  ValueFromPipelineByPropertyName: false
+  ValueFromPipelineByPropertyName: true
   ValueFromRemainingArguments: false
 DontShow: false
 AcceptedValues:
@@ -264,7 +271,7 @@ HelpMessage: ''
 
 ### -UserName
 
-The user name of the credential. At most 512 characters. Without it, the credential has no user name.
+The new user name. At most 512 characters; control characters are rejected. DomainPassword credentials require DOMAIN\user or user@domain. An empty string removes the user name of a Generic credential.
 
 ```yaml
 Type: System.String
@@ -314,9 +321,9 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## INPUTS
 
-### System.Management.Automation.PSCredential
+### WinCred.WinCredential
 
-You can pipe a PSCredential object to this cmdlet.
+You can pipe credentials from Get-WinCredential. They bind to -Target and -Type through their TargetName and Type properties.
 
 ## OUTPUTS
 
@@ -332,8 +339,11 @@ With -PassThru, without the secret.
 
 Windows Credential Manager allows at most 2560 bytes of secret: 1280 characters in Unicode, or fewer for non-ASCII characters in UTF-8.
 
+The cmdlet reads the stored credential and writes it back with the changes. If another program changes the credential between those two steps, its change to the fields this cmdlet writes back is lost. If another program deletes it, the cmdlet writes a CredentialNotFound error when the secret is kept, and recreates the credential when a new secret is given.
+
 ## RELATED LINKS
 
 - [Get-WinCredential](Get-WinCredential.md)
+- [New-WinCredential](New-WinCredential.md)
 - [Remove-WinCredential](Remove-WinCredential.md)
 - [about_WinCred](about_WinCred.md)

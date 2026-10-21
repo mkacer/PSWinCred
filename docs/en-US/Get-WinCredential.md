@@ -15,17 +15,31 @@ Gets credentials from Windows Credential Manager.
 
 ## SYNTAX
 
-### WinCredential (Default)
+### Target (Default)
 
 ```
 Get-WinCredential [[-Target] <String[]>] [-Type <CredType[]>] [-IncludeSecret]
  [-Encoding <CredEncoding>] [<CommonParameters>]
 ```
 
-### PSCredential
+### TargetAsPSCredential
 
 ```
 Get-WinCredential [[-Target] <String[]>] -AsPSCredential [-Type <CredType[]>]
+ [-Encoding <CredEncoding>] [<CommonParameters>]
+```
+
+### LiteralTarget
+
+```
+Get-WinCredential -LiteralTarget <String[]> [-Type <CredType[]>] [-IncludeSecret]
+ [-Encoding <CredEncoding>] [<CommonParameters>]
+```
+
+### LiteralTargetAsPSCredential
+
+```
+Get-WinCredential -LiteralTarget <String[]> -AsPSCredential [-Type <CredType[]>]
  [-Encoding <CredEncoding>] [<CommonParameters>]
 ```
 
@@ -37,9 +51,11 @@ This cmdlet has no aliases.
 
 Gets credentials from Windows Credential Manager for the current user.
 
-By default, it returns WinCredential objects without the secret. Add -IncludeSecret to fill the Secret property with a SecureString, or -AsPSCredential to get PSCredential objects. The cmdlet never returns the secret as plain text.
+By default, it returns WinCredential objects without the secret and without attribute values. Add -IncludeSecret to fill the Secret property with a SecureString, or -AsPSCredential to get PSCredential objects. The cmdlet never returns the secret as plain text.
 
--Target accepts wildcards. An exact target that does not exist writes a CredentialNotFound error; a wildcard without matches returns nothing.
+-Target accepts wildcards; -LiteralTarget does not. An exact target that does not exist writes a CredentialNotFound error; a wildcard without matches returns nothing.
+
+An exact target is read with CredReadW, once per type, so Windows decrypts only that credential. A wildcard is read with CredEnumerateW, filtered by the pattern's literal prefix where it has one; Windows decrypts every credential the filter passes. Without -Target, Windows decrypts the whole store of the current user. WinCred zeroes each decrypted secret it does not return before it frees Windows' buffer.
 
 ## EXAMPLES
 
@@ -50,8 +66,8 @@ PS C:\> Get-WinCredential
 
 TargetName              Type    UserName   Persist      LastWritten
 ----------              ----    --------   -------      -----------
-backup01                Generic svc-backup LocalMachine 21/10/2026 09:12:40
-git:https://example.com Generic octocat    LocalMachine 02/09/2026 17:03:11
+backup01                Generic svc-backup LocalMachine 21/10/2026 09:12:40 +02:00
+git:https://example.com Generic octocat    LocalMachine 02/09/2026 17:03:11 +02:00
 ```
 
 Lists every credential of the current user, without secrets.
@@ -77,13 +93,14 @@ The plain-text conversion is explicit and stays in the caller's code.
 PS C:\> Get-WinCredential -Target 'git:https://example.com' -IncludeSecret -Encoding UTF8
 ```
 
-### Example 5: Find a target that contains wildcard characters
+### Example 5: Get a target that contains wildcard characters
 
 ```powershell
+PS C:\> Get-WinCredential -LiteralTarget 'server[1]'
 PS C:\> Get-WinCredential -Target 'server`[1`]'
 ```
 
-The backticks make the brackets literal, so only the target server[1] matches.
+Both commands get only the target server[1].
 
 ## PARAMETERS
 
@@ -97,7 +114,13 @@ DefaultValue: False
 SupportsWildcards: false
 Aliases: []
 ParameterSets:
-- Name: PSCredential
+- Name: TargetAsPSCredential
+  Position: Named
+  IsRequired: true
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+- Name: LiteralTargetAsPSCredential
   Position: Named
   IsRequired: true
   ValueFromPipeline: false
@@ -110,7 +133,7 @@ HelpMessage: ''
 
 ### -Encoding
 
-The encoding of the stored secret. Windows and most programs use Unicode (UTF-16LE). Use UTF8 for secrets that another program stored as UTF-8 bytes. With the wrong encoding the secret comes back garbled; the cmdlet cannot detect this. The default is Unicode.
+The encoding the secret was stored in. Windows does not record it. Unicode (UTF-16LE) is what Windows and most programs use. A secret that is not valid in this encoding is never altered: the cmdlet writes a SecretNotDecodable error and returns the credential without its secret. The default is Unicode.
 
 ```yaml
 Type: WinCred.CredEncoding
@@ -133,7 +156,7 @@ HelpMessage: ''
 
 ### -IncludeSecret
 
-Fills the Secret property with the secret as a SecureString. Without it, the cmdlet does not decode any secret.
+Fills the Secret property with the secret as a SecureString, and fills the Value of each attribute. Without it, the cmdlet decodes no secret and returns no attribute values.
 
 ```yaml
 Type: System.Management.Automation.SwitchParameter
@@ -141,7 +164,13 @@ DefaultValue: False
 SupportsWildcards: false
 Aliases: []
 ParameterSets:
-- Name: WinCredential
+- Name: Target
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+- Name: LiteralTarget
   Position: Named
   IsRequired: false
   ValueFromPipeline: false
@@ -152,22 +181,55 @@ AcceptedValues: []
 HelpMessage: ''
 ```
 
+### -LiteralTarget
+
+The exact target names to get. No character is a wildcard. Credential objects piped to the cmdlet bind here through their TargetName property. Target names are not case-sensitive.
+
+```yaml
+Type: System.String[]
+DefaultValue: None
+SupportsWildcards: false
+Aliases:
+- TargetName
+ParameterSets:
+- Name: LiteralTarget
+  Position: Named
+  IsRequired: true
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: true
+  ValueFromRemainingArguments: false
+- Name: LiteralTargetAsPSCredential
+  Position: Named
+  IsRequired: true
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: true
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
+```
+
 ### -Target
 
-The target names to get. Wildcards are supported; escape wildcard characters with a backtick to match them literally. Target names are not case-sensitive. Without -Target, the cmdlet returns all credentials.
+The target names to get. Wildcards are supported; escape wildcard characters with a backtick to match them literally, or use -LiteralTarget. Target names are not case-sensitive. Without -Target, the cmdlet returns all credentials.
 
 ```yaml
 Type: System.String[]
 DefaultValue: All credentials
 SupportsWildcards: true
-Aliases:
-- TargetName
+Aliases: []
 ParameterSets:
-- Name: (All)
+- Name: Target
   Position: 0
   IsRequired: false
   ValueFromPipeline: true
-  ValueFromPipelineByPropertyName: true
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+- Name: TargetAsPSCredential
+  Position: 0
+  IsRequired: false
+  ValueFromPipeline: true
+  ValueFromPipelineByPropertyName: false
   ValueFromRemainingArguments: false
 DontShow: false
 AcceptedValues: []
@@ -212,11 +274,11 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ### System.String[]
 
-You can pipe target names to this cmdlet.
+You can pipe target names to -Target.
 
-### WinCred.CredType[]
+### WinCred.WinCredential
 
-You can pipe the Type property of credentials from Get-WinCredential.
+You can pipe credentials from Get-WinCredential. They bind to -LiteralTarget and -Type through their TargetName and Type properties.
 
 ## OUTPUTS
 
@@ -234,6 +296,7 @@ Windows returns the secret of DomainPassword and DomainCertificate credentials o
 
 ## RELATED LINKS
 
+- [New-WinCredential](New-WinCredential.md)
 - [Set-WinCredential](Set-WinCredential.md)
 - [Remove-WinCredential](Remove-WinCredential.md)
 - [about_WinCred](about_WinCred.md)

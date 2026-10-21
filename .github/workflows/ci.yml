@@ -18,7 +18,7 @@ env:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -54,7 +54,7 @@ jobs:
 
   test:
     needs: build
-    runs-on: windows-latest
+    runs-on: windows-2025
     strategy:
       fail-fast: false
       matrix:
@@ -102,7 +102,8 @@ jobs:
         shell: pwsh
         run: |
           $exe = if ($env:PWSH_EXE) { $env:PWSH_EXE } else { 'powershell.exe' }
-          & $exe -NoProfile -NonInteractive -File ./tests/Invoke-Tests.ps1
+          # The runner is discarded afterwards, so persistent and roaming credentials are safe to test here
+          & $exe -NoProfile -NonInteractive -File ./tests/Invoke-Tests.ps1 -IncludePersistent
           exit $LASTEXITCODE
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -114,7 +115,7 @@ jobs:
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [build, test]
-    runs-on: windows-latest
+    runs-on: windows-2025
     permissions:
       contents: write
     steps:

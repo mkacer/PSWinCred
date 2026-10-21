@@ -7,8 +7,10 @@ using static WinCred.Native.NativeMethods;
 namespace WinCred.Native.Tests
 {
     /// <summary>
-    /// Stands in for advapi32. Read and Enumerate return buffers laid out like the real ones;
-    /// the handle frees them all, like CredFree, and counts how often that happens.
+    /// Stands in for advapi32, following the behavior measured on Windows with tools/Measure-CredMan.ps1:
+    /// exact, case-insensitive reads; a filter that is an exact name or a prefix with a trailing "*";
+    /// CRED_PRESERVE_CREDENTIAL_BLOB keeping the secret and failing with ERROR_NOT_FOUND for a missing credential.
+    /// Buffers it returns record whether every secret was zeroed before they were freed.
     /// </summary>
     internal sealed class FakeCredentialApi : ICredentialApi
     {
@@ -27,69 +29,124 @@ namespace WinCred.Native.Tests
         }
 
         private readonly List<IntPtr> allocations = new List<IntPtr>();
+        private readonly List<(IntPtr Blob, int Size)> secrets = new List<(IntPtr, int)>();
 
         public List<Stored> Store { get; } = new List<Stored>();
         public int Error { get; set; }
+        public int ReadError { get; set; }
         public int FreeCount { get; private set; }
+        public bool AllSecretsZeroedBeforeFree { get; private set; } = true;
+        public int ReadCount { get; private set; }
         public int WriteCount { get; private set; }
-        public Stored? LastWrite { get; private set; }
+        public uint LastWriteFlags { get; private set; }
+        public string? LastFilter { get; private set; }
         public int OpenAllocations => allocations.Count;
 
-        public int Read(string targetName, CredType type, out CredentialHandle credential)
-        {
-            credential = new FakeHandle(this, IntPtr.Zero);
-            if (Error != 0) return Error;
+        public Stored? Find(string targetName, CredType type) =>
+            Store.FirstOrDefault(s => s.Type == type && string.Equals(s.TargetName, targetName, StringComparison.OrdinalIgnoreCase));
 
-            Stored? stored = Store.FirstOrDefault(s => s.Type == type && string.Equals(s.TargetName, targetName, StringComparison.OrdinalIgnoreCase));
+        public int Read(string targetName, CredType type, out SingleCredentialBuffer credential)
+        {
+            ReadCount++;
+            credential = new FakeSingle(this, IntPtr.Zero);
+            if (ReadError != 0) return ReadError;
+
+            Stored? stored = Find(targetName, type);
             if (stored == null) return ERROR_NOT_FOUND;
 
-            credential = new FakeHandle(this, ToBuffer(stored));
+            credential = new FakeSingle(this, ToBuffer(stored));
             return 0;
         }
 
-        public int Enumerate(out int count, out CredentialHandle credentials)
+        public int Enumerate(string? filter, out CredentialArrayBuffer credentials)
         {
-            count = 0;
-            credentials = new FakeHandle(this, IntPtr.Zero);
+            LastFilter = filter;
+            credentials = new FakeArray(this, IntPtr.Zero, 0);
             if (Error != 0) return Error;
-            if (Store.Count == 0) return ERROR_NOT_FOUND;
 
-            IntPtr array = Alloc(IntPtr.Size * Store.Count);
-            for (int i = 0; i < Store.Count; i++)
+            List<Stored> matching = Store.Where(s => Passes(filter, s.TargetName)).ToList();
+            if (matching.Count == 0) return ERROR_NOT_FOUND;
+
+            IntPtr array = Alloc(IntPtr.Size * matching.Count);
+            for (int i = 0; i < matching.Count; i++)
             {
-                Marshal.WriteIntPtr(array, i * IntPtr.Size, ToBuffer(Store[i]));
+                Marshal.WriteIntPtr(array, i * IntPtr.Size, ToBuffer(matching[i]));
             }
-            count = Store.Count;
-            credentials = new FakeHandle(this, array);
+            credentials = new FakeArray(this, array, matching.Count);
             return 0;
         }
 
-        public int Write(ref CREDENTIALW credential)
+        private static bool Passes(string? filter, string name)
+        {
+            if (filter == null) return true;
+            // String.EndsWith(char) does not exist on .NET Framework 4.6.2
+            return filter.Length > 0 && filter[filter.Length - 1] == '*'
+                ? name.StartsWith(filter.Substring(0, filter.Length - 1), StringComparison.OrdinalIgnoreCase)
+                : string.Equals(name, filter, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public int Write(ref CREDENTIALW credential, uint flags)
         {
             WriteCount++;
+            LastWriteFlags = flags;
+            if (Error != 0) return Error;
+
+            string target = Marshal.PtrToStringUni(credential.TargetName) ?? "";
+            Stored? existing = Find(target, (CredType)credential.Type);
+            bool preserve = (flags & CRED_PRESERVE_CREDENTIAL_BLOB) != 0;
+            if (preserve && credential.CredentialBlob != IntPtr.Zero) return ERROR_INVALID_PARAMETER;
+            if (preserve && existing == null) return ERROR_NOT_FOUND;
+
             byte[] blob = new byte[credential.CredentialBlobSize];
             if (blob.Length > 0) Marshal.Copy(credential.CredentialBlob, blob, 0, blob.Length);
-            LastWrite = new Stored
+
+            var attributes = new List<(string, uint, byte[])>();
+            int attributeSize = Marshal.SizeOf<CREDENTIAL_ATTRIBUTEW>();
+            for (int i = 0; i < credential.AttributeCount; i++)
             {
-                TargetName = Marshal.PtrToStringUni(credential.TargetName) ?? "",
+                var a = Marshal.PtrToStructure<CREDENTIAL_ATTRIBUTEW>(credential.Attributes + i * attributeSize);
+                byte[] value = new byte[a.ValueSize];
+                if (value.Length > 0) Marshal.Copy(a.Value, value, 0, value.Length);
+                attributes.Add((Marshal.PtrToStringUni(a.Keyword) ?? "", a.Flags, value));
+            }
+
+            var written = new Stored
+            {
+                TargetName = target,
                 Type = (CredType)credential.Type,
                 UserName = Marshal.PtrToStringUni(credential.UserName),
                 Comment = Marshal.PtrToStringUni(credential.Comment),
+                TargetAlias = Marshal.PtrToStringUni(credential.TargetAlias),
                 Persist = (CredPersist)credential.Persist,
-                Blob = blob,
+                Blob = preserve ? existing!.Blob : blob,
+                // Measured: of the accepted flags, only these two are stored
+                Flags = credential.Flags & (CRED_FLAGS_REQUIRE_CONFIRMATION | CRED_FLAGS_VSM_PROTECTED),
+                Attributes = attributes,
             };
-            return Error;
+            if (existing != null) Store.Remove(existing);
+            Store.Add(written);
+            return 0;
         }
 
         public int Delete(string targetName, CredType type)
         {
             if (Error != 0) return Error;
-            return Store.RemoveAll(s => s.Type == type && string.Equals(s.TargetName, targetName, StringComparison.OrdinalIgnoreCase)) > 0 ? 0 : ERROR_NOT_FOUND;
+            Stored? stored = Find(targetName, type);
+            if (stored == null) return ERROR_NOT_FOUND;
+            Store.Remove(stored);
+            return 0;
         }
 
         private void FreeAll()
         {
             FreeCount++;
+            foreach (var (blob, size) in secrets)
+            {
+                byte[] bytes = new byte[size];
+                Marshal.Copy(blob, bytes, 0, size);
+                if (bytes.Any(b => b != 0)) AllSecretsZeroedBeforeFree = false;
+            }
+            secrets.Clear();
             allocations.ForEach(Marshal.FreeHGlobal);
             allocations.Clear();
         }
@@ -136,6 +193,9 @@ namespace WinCred.Native.Tests
                 }
             }
 
+            IntPtr blob = Bytes(stored.Blob);
+            secrets.Add((blob, stored.Blob.Length));
+
             var native = new CREDENTIALW
             {
                 Flags = stored.Flags,
@@ -144,7 +204,7 @@ namespace WinCred.Native.Tests
                 Comment = String(stored.Comment),
                 LastWritten = new NativeMethods.FILETIME { dwLowDateTime = (uint)stored.LastWritten, dwHighDateTime = (uint)(stored.LastWritten >> 32) },
                 CredentialBlobSize = (uint)stored.Blob.Length,
-                CredentialBlob = Bytes(stored.Blob),
+                CredentialBlob = blob,
                 Persist = (uint)stored.Persist,
                 AttributeCount = (uint)stored.Attributes.Count,
                 Attributes = attributes,
@@ -156,20 +216,28 @@ namespace WinCred.Native.Tests
             return buffer;
         }
 
-        private sealed class FakeHandle : CredentialHandle
+        private sealed class FakeSingle : SingleCredentialBuffer
         {
             private readonly FakeCredentialApi api;
 
-            internal FakeHandle(FakeCredentialApi api, IntPtr buffer) : base(buffer)
+            internal FakeSingle(FakeCredentialApi api, IntPtr buffer) : base(buffer)
             {
                 this.api = api;
             }
 
-            protected override bool ReleaseHandle()
+            protected override void Free(IntPtr buffer) => api.FreeAll();
+        }
+
+        private sealed class FakeArray : CredentialArrayBuffer
+        {
+            private readonly FakeCredentialApi api;
+
+            internal FakeArray(FakeCredentialApi api, IntPtr buffer, int count) : base(buffer, count)
             {
-                api.FreeAll();
-                return true;
+                this.api = api;
             }
+
+            protected override void Free(IntPtr buffer) => api.FreeAll();
         }
     }
 }

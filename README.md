@@ -23,19 +23,22 @@ The module ships two builds of WinCred.dll: `net462` for Windows PowerShell 5.1 
 ## Usage
 
 ```powershell
-# Store a credential. The secret comes from a prompt, never from plain text on the command line.
-Get-Credential -UserName svc-backup | Set-WinCredential -Target backup01 -Persist LocalMachine
+# Create a credential. The secret comes from a prompt, never from plain text on the command line.
+Get-Credential -UserName svc-backup | New-WinCredential -Target backup01 -Persist LocalMachine
 
-# Store a token without a user name; it lasts until logoff (the default)
-Set-WinCredential -Target api.example.com -Secret (Read-Host -AsSecureString -Prompt Token)
+# Create a token without a user name; it lasts until logoff (the default)
+New-WinCredential -Target api.example.com -Secret (Read-Host -AsSecureString -Prompt Token)
 
-# List credentials: no secrets are read
+# Change only the secret; user name, persistence and comment stay as they are
+Set-WinCredential -Target backup01 -Secret (Read-Host -AsSecureString -Prompt 'New password')
+
+# List credentials: no secrets are returned
 Get-WinCredential -Target 'backup*'
 
 # Use one as a PSCredential
 Invoke-Command -ComputerName backup01 -Credential (Get-WinCredential -Target backup01 -AsPSCredential) -ScriptBlock { hostname }
 
-# Preview, then delete
+# Preview, then delete. Set- and Remove-WinCredential ask for confirmation unless -Confirm:$false is given.
 Get-WinCredential -Target 'test.*' | Remove-WinCredential -WhatIf
 Remove-WinCredential -Target backup01
 ```
@@ -44,15 +47,44 @@ Full help: `Get-Help Get-WinCredential -Full` and `Get-Help about_WinCred`. The 
 
 ## Security defaults
 
-* `Set-WinCredential` requires a secret as a SecureString or PSCredential. It fails without one; it never prompts and never generates one. There is no plain-text secret parameter.
+* `New-WinCredential` requires a secret as a SecureString or PSCredential. It fails without one; it never prompts and never generates one. There is no plain-text secret parameter.
+* `New-WinCredential` fails if the credential exists. `Set-WinCredential` fails if it does not, and changes only the fields you name: without a new secret, Windows keeps the stored one and WinCred never reads it.
 * New credentials persist for the logon session. Longer persistence MUST be requested with `-Persist`.
-* `Get-WinCredential` reads no secret unless you add `-IncludeSecret` or `-AsPSCredential`, and never returns plain text.
-* Secrets never appear in messages, errors or formatted output. Unmanaged copies are zeroed before they are freed, and every buffer from Windows is released with `CredFree`.
-* Invalid input fails before anything is written. Windows' limits are checked up front: target 32766 characters (Generic) or a host name of up to 253 characters with labels of up to 63 (DomainPassword), user name 512, comment 255, secret 2560 bytes after encoding.
+* `Set-WinCredential` and `Remove-WinCredential` ask for confirmation by default.
+* `Get-WinCredential` returns no secret and no attribute values unless you add `-IncludeSecret` or `-AsPSCredential`, and never returns plain text. An exact target is read with `CredReadW`, so Windows decrypts only that credential.
+* Secrets never appear in messages, errors or formatted output. WinCred zeroes the unmanaged copies of a secret that it makes, and every decrypted secret in a buffer from Windows, before freeing them. Every buffer from Windows is released with `CredFree`.
+* Secrets are never altered to fit an encoding: invalid text fails on write, and invalid bytes fail on read.
+* Invalid input fails before the store is touched. Windows' limits are checked up front (see [Limits](#limits)), and so are control characters and the `DOMAIN\user` or `user@domain` form of DomainPassword user names.
+
+## What WinCred cannot protect against
+
+Credential Manager protects credentials at rest for a user account. It does not separate programs that run as that user.
+
+* Any program running as the same user can read the secret of every Generic credential of that user, with or without WinCred.
+* An administrator, or a program running as SYSTEM, can get the secrets of other users, for example by reading process memory.
+* A SecureString limits how long plain text sits in memory, but it is not a secret boundary. PowerShell, .NET and the programs that use a credential make plain-text copies that WinCred cannot zero. Microsoft [recommends against SecureString](https://github.com/dotnet/platform-compat/blob/master/docs/DE0001.md) for new .NET code.
+* Converting a secret to plain text creates a string that stays in memory until the garbage collector reuses it.
+* Windows decrypts every credential that `CredEnumerateW` returns. `Get-WinCredential` without `-Target`, or with a wildcard that has no literal prefix, decrypts the user's whole store into the process before WinCred zeroes the secrets it does not return.
+* `Enterprise` credentials roam with the user profile, so copies end up on other computers and in profile storage.
+* Windows has no create-only or compare-and-swap write. Another program can change a credential between `New-WinCredential`'s existence check and its write, or between `Set-WinCredential`'s read and its write.
 
 ## Encoding
 
-Windows stores the secret as opaque bytes. WinCred uses Unicode (UTF-16LE) by default, which is what Windows and most programs use. Programs that share credentials with WinCred MUST agree on the encoding; use `-Encoding UTF8` for programs that store UTF-8.
+Windows stores the secret as opaque bytes and does not record their encoding. WinCred uses Unicode (UTF-16LE) by default, which is what Windows and most programs use. Programs that share credentials with WinCred MUST agree on the encoding; use `-Encoding UTF8` for programs that store UTF-8. WinCred reports bytes that are not valid in the chosen encoding, but many wrong encodings still decode without error and give a garbled secret.
+
+## Limits
+
+Measured on Windows; WinCred checks them before writing.
+
+| Field | Limit |
+|---|---|
+| Target, Generic | 32766 characters |
+| Target, DomainPassword | A host name: 253 bytes in UTF-8, labels of 63 bytes |
+| User name | 512 characters |
+| Comment | 255 characters |
+| Secret | 2560 bytes after encoding: 1280 characters in Unicode |
+
+The character limits are one less than the `wincred.h` constants, which count the terminating null character. Windows returns the secret of DomainPassword and DomainCertificate credentials only to the Local Security Authority, so WinCred can write DomainPassword credentials but never read their secret.
 
 ## Migrating from CredentialManager or TUN.CredentialManager
 
@@ -62,14 +94,15 @@ Windows stores the secret as opaque bytes. WinCred uses Unicode (UTF-16LE) by de
 | `Get-StoredCredential -Target x` (PSCredential) | `Get-WinCredential -Target x -AsPSCredential` |
 | `Get-StoredCredential -Target x -AsCredentialObject` | `Get-WinCredential -Target x` (no secret) or `-IncludeSecret` |
 | `.Password` (plain text) on credential objects | `[System.Net.NetworkCredential]::new('', $c.Secret).Password`, in your own code |
-| `Get-StoredCredential` (all) | `Get-WinCredential`; `-Target` accepts wildcards |
-| `New-StoredCredential -Target x -UserName u -Password p` | `Set-WinCredential -Target x -UserName u -Secret (Read-Host -AsSecureString)` |
-| `New-StoredCredential -Credentials $c` | `Set-WinCredential -Credential $c` or `$c \| Set-WinCredential -Target x` |
+| `Get-StoredCredential` (all) | `Get-WinCredential`; `-Target` accepts wildcards, `-LiteralTarget` does not |
+| `New-StoredCredential -Target x -UserName u -Password p` | `New-WinCredential -Target x -UserName u -Secret (Read-Host -AsSecureString)` |
+| `New-StoredCredential -Credentials $c` | `New-WinCredential -Target x -Credential $c` or `$c \| New-WinCredential -Target x` |
+| `New-StoredCredential` over an existing credential (replaced every field) | `New-WinCredential` fails with `CredentialExists`; `Set-WinCredential` changes only the fields you name |
 | `New-StoredCredential` without a password (stored a random one) | Fails with `MissingSecret` |
 | `-Target` defaulted to the computer name | `-Target` is required |
 | `-UserName` defaulted to the current user; `-Comment` to "Updated by ..." | No defaults: omitted means not stored |
-| `New-StoredCredential` returned the credential | `Set-WinCredential` returns nothing; add `-PassThru` |
-| `Remove-StoredCredential -Target x` | `Remove-WinCredential -Target x`, or pipe from `Get-WinCredential` |
+| `New-StoredCredential` returned the credential | `New-` and `Set-WinCredential` return nothing; add `-PassThru` |
+| `Remove-StoredCredential -Target x` | `Remove-WinCredential -Target x`, which asks for confirmation; or pipe from `Get-WinCredential` |
 | `Get-StrongPassword` | Removed: generating passwords is outside this module's scope |
 | `CredType` values `Maximum`, `MaximumEx` | Removed: they are not credential types |
 
@@ -83,13 +116,17 @@ pwsh -File ./tools/Install-Tools.ps1       # Pinned Pester, PSScriptAnalyzer and
 ./tools/Invoke-ScriptAnalysis.ps1          # PSScriptAnalyzer with PSScriptAnalyzerSettings.psd1
 ./build.ps1                                # Module with help into out/WinCred
 
-# Pester tests in both editions. They only touch targets named WinCred.Test.<guid>.* and remove them again.
+# Pester tests in both editions. They only touch targets named WinCred.Test.*, remove leftovers from
+# earlier runs first, and fail if anything is left behind.
 powershell -NoProfile -NonInteractive -File ./tests/Invoke-Tests.ps1
 pwsh -NoProfile -NonInteractive -File ./tests/Invoke-Tests.ps1
-pwsh -File ./tests/Invoke-Tests.ps1 -ExcludeTag Store   # Without touching your credential store
+pwsh -File ./tests/Invoke-Tests.ps1 -IncludePersistent   # Also LocalMachine and Enterprise (roaming) credentials
+pwsh -File ./tests/Invoke-Tests.ps1 -ExcludeTag Store    # Without touching your credential store
 ```
 
-Tool versions are pinned in [tools/tools.psd1](tools/tools.psd1). `Install-Tools.ps1` uses PSResourceGet, which ships with PowerShell 7.4+, so run it with `pwsh`; the saved tools are imported by path and work in Windows PowerShell 5.1 too. To run it in Windows PowerShell 5.1 instead, first run `Install-Module Microsoft.PowerShell.PSResourceGet -Scope CurrentUser`. Help is written in [Microsoft.PowerShell.PlatyPS](https://github.com/PowerShell/platyPS) markdown; PlatyPS 1.0 does not write parameter default values into the compiled help, so each description states its default. The version number MUST be changed in both `Directory.Build.props` and `src/WinCred/WinCred.psd1`; `build.ps1` fails when they differ.
+By default the Pester tests write only Session credentials. `-IncludePersistent` adds tests that write LocalMachine and Enterprise credentials; an interrupted run can leave those behind until the next run removes them, and Enterprise credentials can roam to other computers in the meantime. CI passes `-IncludePersistent` because its runners are discarded.
+
+Tool versions and signers are pinned in [tools/tools.psd1](tools/tools.psd1). Every file of a tool, except help and package metadata, MUST be signed by the pinned certificate (Pester) or under a pinned Microsoft root (PSScriptAnalyzer, PlatyPS). `Install-Tools.ps1` checks this after download, and the scripts that use a tool check it again before every import, through `Import-Tool` in [tools/Tools.psm1](tools/Tools.psm1). The check needs Windows. `Install-Tools.ps1` uses PSResourceGet, which ships with PowerShell 7.4+, so run it with `pwsh`; the saved tools are imported by path and work in Windows PowerShell 5.1 too. To run it in Windows PowerShell 5.1 instead, first run `Install-Module Microsoft.PowerShell.PSResourceGet -Scope CurrentUser`. Help is written in [Microsoft.PowerShell.PlatyPS](https://github.com/PowerShell/platyPS) markdown; PlatyPS 1.0 does not write parameter default values into the compiled help, so each description states its default. The version number MUST be changed in both `Directory.Build.props` and `src/WinCred/WinCred.psd1`; `build.ps1` fails when they differ.
 
 GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the unit tests, PSScriptAnalyzer and the build, then the Pester tests in Windows PowerShell 5.1 and PowerShell 7.4 and 7.6. A tag starting with `v` creates a draft release with WinCred.zip. [CodeQL](.github/workflows/codeql.yml) analyzes the C# code and the workflows on every push, pull request and weekly. [Dependabot](.github/dependabot.yml) proposes updates to the pinned Actions and NuGet packages after they are 14 days old.
 
@@ -114,13 +151,15 @@ foreach ($name in 'DOTNET_CLI_TELEMETRY_OPTOUT', 'TESTINGPLATFORM_TELEMETRY_OPTO
 ## History
 
 ### WinCred 1.0.0
-- New identity: module WinCred with cmdlets Get-, Set- and Remove-WinCredential, and a new GUID
+- New identity: module WinCred with cmdlets Get-, New-, Set- and Remove-WinCredential, and a new GUID
+- `New-WinCredential` only creates; `Set-WinCredential` only changes the fields you name and keeps the stored secret without reading it
 - A thin layer over the native CredMan API: SafeHandle-owned buffers, `CREDENTIAL_ATTRIBUTEW` attributes read into managed objects, Win32 error messages
 - Secure defaults: required secret, no plain-text input or output, Session persistence, no generated or implied values
-- `-Encoding` (Unicode or UTF8), `-WhatIf`/`-Confirm`, `-PassThru`, wildcard targets, pipeline from Get- to Remove-WinCredential
-- Size limits checked before writing; oversized secrets never reach Windows
+- `-Encoding` (Unicode or UTF8, strict in both directions), `-WhatIf`/`-Confirm`, `-PassThru`, wildcard and literal targets, pipeline from Get- to Set- and Remove-WinCredential
+- Decrypted secrets zeroed in Windows' buffers before `CredFree`; exact lookups decrypt only the requested credential
+- Measured limits, control characters and DomainPassword user names checked before the store is touched
 - Builds for net462 (Windows PowerShell 5.1) and net8.0 (PowerShell 7.4+); no runtime dependencies
-- Tests: MSTest on Microsoft.Testing.Platform for the native layer, Pester 6 against the real credential store in both editions; PSScriptAnalyzer; .NET analyzers at the recommended level; CodeQL; pinned, signature-checked tools installed with PSResourceGet; help built with Microsoft.PowerShell.PlatyPS 1.0
+- Tests: MSTest on Microsoft.Testing.Platform for the native layer, Pester 6 against the real credential store in both editions; PSScriptAnalyzer; .NET analyzers at the recommended level; CodeQL; pinned tools installed with PSResourceGet and verified against pinned signers before every use; help built with Microsoft.PowerShell.PlatyPS 1.0
 
 ### TUN.CredentialManager history
 
@@ -175,13 +214,4 @@ https://github.com/mkacer
 
 ## License
 
-
-This software is licensed under the [The MIT License (MIT)](http://opensource.org/licenses/MIT).
-
-	Copyright (C) 2016 Dave Garnar, 2022 Markus Szumovski and 2026 Michael Kacer
-
-	Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-	The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+MIT. See [License](License).

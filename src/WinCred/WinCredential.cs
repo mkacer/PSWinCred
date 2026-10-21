@@ -5,12 +5,12 @@ using System.Security;
 namespace WinCred
 {
     /// <summary>
-    /// A credential read from Windows Credential Manager. Secret is filled only on request.
+    /// A credential read from Windows Credential Manager. Secret and attribute values are filled only on request.
     /// </summary>
     public sealed class WinCredential
     {
         internal WinCredential(string targetName, CredType type, CredFlags flags, CredPersist persist, string? userName,
-            string? comment, string? targetAlias, DateTime lastWritten, IReadOnlyList<WinCredentialAttribute> attributes, SecureString? secret)
+            string? comment, string? targetAlias, DateTimeOffset lastWritten, IReadOnlyList<WinCredentialAttribute> attributes, SecureString? secret)
         {
             TargetName = targetName;
             Type = type;
@@ -30,7 +30,7 @@ namespace WinCred
         public CredPersist Persist { get; }
         public string? Comment { get; }
         public string? TargetAlias { get; }
-        public DateTime LastWritten { get; }
+        public DateTimeOffset LastWritten { get; }
         public CredFlags Flags { get; }
         public IReadOnlyList<WinCredentialAttribute> Attributes { get; }
         public SecureString? Secret { get; }
@@ -46,20 +46,25 @@ namespace WinCred
         }
     }
 
-    /// <summary>A CREDENTIAL_ATTRIBUTEW entry.</summary>
+    /// <summary>
+    /// A CREDENTIAL_ATTRIBUTEW entry. Its value belongs to the program that wrote it and may be secret,
+    /// so Value is filled only on request, like the credential's secret.
+    /// </summary>
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1711", Justification = "Mirrors CREDENTIAL_ATTRIBUTEW in wincred.h.")]
     public sealed class WinCredentialAttribute
     {
-        internal WinCredentialAttribute(string keyword, uint flags, byte[] value)
+        internal WinCredentialAttribute(string keyword, uint flags, int valueLength, IReadOnlyList<byte>? value)
         {
             Keyword = keyword;
             Flags = flags;
+            ValueLength = valueLength;
             Value = value;
         }
 
         public string Keyword { get; }
         public uint Flags { get; }
-        public byte[] Value { get; }
+        public int ValueLength { get; }
+        public IReadOnlyList<byte>? Value { get; }
 
         public override string ToString() => Keyword;
     }

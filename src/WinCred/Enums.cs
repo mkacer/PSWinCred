@@ -21,14 +21,20 @@ namespace WinCred
         Enterprise = 3,
     }
 
-    /// <summary>CRED_FLAGS_* values that Windows can return.</summary>
+    /// <summary>CRED_FLAGS_* values from wincred.h.</summary>
     [Flags]
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1711", Justification = "Mirrors CRED_FLAGS_* in wincred.h.")]
     public enum CredFlags : uint
     {
         None = 0,
+        PasswordForCert = 0x1,
         PromptNow = 0x2,
         UsernameTarget = 0x4,
+        OwfCredBlob = 0x8,
+        RequireConfirmation = 0x10,
+        WildcardMatch = 0x20,
+        VsmProtected = 0x40,
+        NgcCert = 0x80,
     }
 
     /// <summary>

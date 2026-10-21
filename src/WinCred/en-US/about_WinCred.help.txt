@@ -14,32 +14,64 @@ LONG DESCRIPTION
     Other programs, in any language, can read and write the same credentials
     through the same Windows API. Credential Manager is the shared interface.
 
-    The module has three cmdlets:
+    The module has four cmdlets:
 
         Get-WinCredential      Gets credentials; secrets only on request.
-        Set-WinCredential      Creates a credential or replaces one with the
-                               same target and type.
+        New-WinCredential      Creates a credential. Fails if it exists.
+        Set-WinCredential      Changes fields of an existing credential.
+                               Fails if it does not exist.
         Remove-WinCredential   Deletes a credential.
 
 SECURITY DEFAULTS
     WinCred fails closed and requires security-sensitive intent to be
     explicit:
 
-    - Set-WinCredential requires a secret, as a SecureString or a
+    - New-WinCredential requires a secret, as a SecureString or a
       PSCredential. It never prompts for one and never generates one. There
       is no plain-text secret parameter.
     - New credentials persist for the logon session (Session). Use
       -Persist LocalMachine or -Persist Enterprise to keep them longer.
-    - Get-WinCredential returns no secret unless you add -IncludeSecret or
-      -AsPSCredential, and never returns a secret as plain text. To get plain
-      text, convert explicitly in your own code:
+    - Set-WinCredential changes only the fields you name. Without a new
+      secret, Windows keeps the stored one and WinCred never reads it.
+    - Set-WinCredential and Remove-WinCredential ask for confirmation by
+      default. In scripts, add -Confirm:$false.
+    - Get-WinCredential returns no secret and no attribute values unless you
+      add -IncludeSecret or -AsPSCredential, and never returns a secret as
+      plain text. To get plain text, convert explicitly in your own code:
 
           [System.Net.NetworkCredential]::new('', $credential.Secret).Password
 
     - Secrets never appear in verbose, debug, warning or error messages, or
       in formatted output.
-    - Unmanaged copies of a secret are zeroed before they are freed, and every
-      buffer returned by Windows is released with CredFree.
+    - Every value is checked before the store is touched. Invalid input
+      fails without writing.
+    - WinCred zeroes the unmanaged copies of a secret that it makes, and
+      every decrypted secret in a buffer from Windows, before it frees them.
+      Every buffer from Windows is released with CredFree.
+
+WHAT WINCRED CANNOT PROTECT AGAINST
+    Credential Manager protects credentials at rest for a user account. It
+    does not separate programs that run as that user. In particular:
+
+    - Any program running as the same user can read the secret of every
+      Generic credential of that user, with or without WinCred.
+    - An administrator, or a program running as SYSTEM, can get the secrets
+      of other users, for example by reading process memory.
+    - A SecureString limits how long plain text sits in memory, but it is
+      not a secret boundary. PowerShell, .NET and the programs that use a
+      credential make plain-text copies that WinCred cannot zero. Microsoft
+      recommends against SecureString for new .NET code (see DE0001).
+    - Converting a secret to plain text, as shown above, creates a string
+      that stays in memory until the garbage collector reuses it.
+    - Windows decrypts every credential that CredEnumerateW returns. Getting
+      all credentials, or a wildcard without a literal prefix, decrypts the
+      whole store of the user into WinCred's process before WinCred zeroes
+      the secrets it does not return. Use exact targets where possible.
+    - Enterprise credentials roam with the user profile. Copies end up on
+      other computers and in profile storage.
+    - Windows has no create-only or compare-and-swap write. Another program
+      can change a credential between New-WinCredential's existence check
+      and its write, or between Set-WinCredential's read and its write.
 
 ENCODING
     Windows stores a credential's secret as opaque bytes and does not record
@@ -48,27 +80,35 @@ ENCODING
     credentials that another program stores as UTF-8 bytes.
 
     Programs that share credentials with WinCred MUST agree on the encoding.
-    With the wrong encoding, the secret comes back garbled; WinCred cannot
-    detect this.
+    WinCred never alters a secret to make it fit an encoding. It rejects a
+    secret that is not valid Unicode text when writing, and reports a
+    SecretNotDecodable error when stored bytes are not valid in the chosen
+    encoding. Many wrong encodings still decode without error, though, and
+    then give a garbled secret; WinCred cannot detect that.
 
 PERSISTENCE
-    Session        Until the user logs off. The default.
+    Session        For the logon session; gone after logoff. The default.
     LocalMachine   On this computer, across logon sessions.
     Enterprise     Roams with the user's profile, where roaming is set up.
 
 LIMITS
-    Windows enforces these limits. Set-WinCredential checks them before
-    writing, and fails without writing when one is exceeded:
+    Windows enforces these limits. WinCred checks them before writing, and
+    fails without writing when one is exceeded:
 
     Target          32766 characters (Generic)
-                    253 characters, 63 per dot-separated label (DomainPassword;
-                    the target is a host name, such as server.example.com)
+                    253 bytes in UTF-8, 63 bytes per dot-separated label
+                    (DomainPassword; the target is a host name, such as
+                    server.example.com)
     User name       512 characters
     Comment         255 characters
-
-    These are the limits Windows enforces. They are one less than the
-    wincred.h constants, which count the terminating null character.
     Secret          2560 bytes after encoding: 1280 characters in Unicode
+
+    The character limits are one less than the wincred.h constants, which
+    count the terminating null character. They were measured on Windows.
+
+    Target, user name and comment MUST NOT contain control characters.
+    DomainPassword user names MUST have the form DOMAIN\user or
+    user@domain.
 
     Windows returns the secret of DomainPassword and DomainCertificate
     credentials only to the Local Security Authority, so WinCred can write
@@ -76,6 +116,7 @@ LIMITS
 
 SEE ALSO
     Get-WinCredential
+    New-WinCredential
     Set-WinCredential
     Remove-WinCredential
     https://learn.microsoft.com/windows/win32/api/wincred/

@@ -8,39 +8,44 @@ namespace WinCred.Native
     /// </summary>
     internal interface ICredentialApi
     {
-        int Read(string targetName, CredType type, out CredentialHandle credential);
-        int Write(ref NativeMethods.CREDENTIALW credential);
+        int Read(string targetName, CredType type, out SingleCredentialBuffer credential);
+
+        /// <summary>
+        /// <paramref name="filter"/> is null for all credentials, a name for an exact match, or a prefix
+        /// followed by "*". Measured: matching ignores case, and "[", "?" and a non-trailing "*" are literal.
+        /// </summary>
+        int Enumerate(string? filter, out CredentialArrayBuffer credentials);
+
+        int Write(ref NativeMethods.CREDENTIALW credential, uint flags);
         int Delete(string targetName, CredType type);
-        int Enumerate(out int count, out CredentialHandle credentials);
     }
 
     internal sealed class NativeCredentialApi : ICredentialApi
     {
         internal static readonly NativeCredentialApi Instance = new NativeCredentialApi();
 
-        public int Read(string targetName, CredType type, out CredentialHandle credential)
+        public int Read(string targetName, CredType type, out SingleCredentialBuffer credential)
         {
             return NativeMethods.CredRead(targetName, (uint)type, 0, out credential) ? 0 : Marshal.GetLastWin32Error();
         }
 
-        public int Write(ref NativeMethods.CREDENTIALW credential)
+        public int Enumerate(string? filter, out CredentialArrayBuffer credentials)
         {
-            return NativeMethods.CredWrite(ref credential, 0) ? 0 : Marshal.GetLastWin32Error();
+            // No flags: CRED_ENUMERATE_ALL_CREDENTIALS would return "namespace:attribute=target" names.
+            bool ok = NativeMethods.CredEnumerate(filter, 0, out uint count, out credentials);
+            int error = ok ? 0 : Marshal.GetLastWin32Error();
+            credentials.Count = ok ? (int)count : 0;
+            return error;
+        }
+
+        public int Write(ref NativeMethods.CREDENTIALW credential, uint flags)
+        {
+            return NativeMethods.CredWrite(ref credential, flags) ? 0 : Marshal.GetLastWin32Error();
         }
 
         public int Delete(string targetName, CredType type)
         {
             return NativeMethods.CredDelete(targetName, (uint)type, 0) ? 0 : Marshal.GetLastWin32Error();
-        }
-
-        public int Enumerate(out int count, out CredentialHandle credentials)
-        {
-            // A null filter with no flags returns every credential under its own target name.
-            // CRED_ENUMERATE_ALL_CREDENTIALS would return "namespace:attribute=target" names instead.
-            bool ok = NativeMethods.CredEnumerate(null, 0, out uint nativeCount, out credentials);
-            int error = ok ? 0 : Marshal.GetLastWin32Error();
-            count = (int)nativeCount;
-            return error;
         }
     }
 }

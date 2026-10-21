@@ -4,8 +4,13 @@
     Tests of the built WinCred module. Run through tests/Invoke-Tests.ps1.
 
     Tests tagged 'Store' read and write the current user's Windows Credential Manager. They only touch
-    targets under 'WinCred.Test.<run guid>.' and remove them again, even after failures.
+    targets named WinCred.Test.*: they first remove leftovers of earlier runs, then remove their own
+    credentials and fail if any remain.
+    Tests tagged 'Persistent' write LocalMachine or Enterprise credentials, which outlive the logon session;
+    'Roaming' ones write Enterprise credentials, which can roam to other computers with the user profile.
+    Invoke-Tests.ps1 runs them only with -IncludePersistent.
     Tests tagged 'Help' need the module built with help (build.ps1 without -SkipHelp).
+    Set- and Remove-WinCredential ask for confirmation by default, so every call here passes -Confirm:$false.
     This file is ASCII only, because Windows PowerShell 5.1 reads BOM-less scripts as ANSI.
 #>
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', '', Justification = 'Pester shares variables between blocks.')]
@@ -20,11 +25,6 @@ BeforeDiscovery {
         @{ Encoding = 'Unicode' }
         @{ Encoding = 'UTF8' }
     )
-    $persistModes = @(
-        @{ Persist = 'Session' }
-        @{ Persist = 'LocalMachine' }
-        @{ Persist = 'Enterprise' }
-    )
     # 2560 bytes is CRED_MAX_CREDENTIAL_BLOB_SIZE. [char]0xE9 is 2 bytes in UTF-8.
     $blobSizes = @(
         @{ Encoding = 'Unicode'; Char = 'a'; Length = 0; Fits = $true }
@@ -35,12 +35,18 @@ BeforeDiscovery {
         @{ Encoding = 'UTF8'; Char = [string][char]0xE9; Length = 1280; Fits = $true }
         @{ Encoding = 'UTF8'; Char = [string][char]0xE9; Length = 1281; Fits = $false }
     )
+    $controlCharacters = @(
+        @{ Field = 'Target' }
+        @{ Field = 'UserName' }
+        @{ Field = 'Comment' }
+    )
 }
 
 BeforeAll {
     Import-Module $ModulePath -Force
 
     $prefix = "WinCred.Test.$([guid]::NewGuid().ToString('N'))"
+    $domainUser = "$env:COMPUTERNAME\wincred-test"
 
     function Get-TestTarget([string]$Name) { "$prefix.$Name" }
 
@@ -64,6 +70,10 @@ BeforeAll {
         [System.Net.NetworkCredential]::new('', $Secret).Password
     }
 
+    function Get-ConfirmImpact([string]$Command) {
+        (Get-Command $Command).ImplementingType.GetCustomAttributes([System.Management.Automation.CmdletAttribute], $false)[0].ConfirmImpact
+    }
+
     # a-umlaut, e-acute, a surrogate pair (U+1F600) and two CJK characters
     $unicodeText = -join @('p', [char]0xE4, [char]0xE9, 's', [char]::ConvertFromUtf32(0x1F600), [char]0x65E5, [char]0x672C)
 }
@@ -73,36 +83,50 @@ AfterAll {
 }
 
 Describe 'Module surface' {
-    It 'exports exactly Get-, Set- and Remove-WinCredential' {
+    It 'exports exactly Get-, New-, Set- and Remove-WinCredential' {
         $names = @((Get-Command -Module WinCred).Name | Sort-Object)
-        Should-BeCollection -Actual $names -Expected @('Get-WinCredential', 'Remove-WinCredential', 'Set-WinCredential')
+        Should-BeCollection -Actual $names -Expected @('Get-WinCredential', 'New-WinCredential', 'Remove-WinCredential', 'Set-WinCredential')
     }
 
     It 'has no parameter that takes or returns a plain-text secret' {
-        $set = Get-Command Set-WinCredential
-        $get = Get-Command Get-WinCredential
-        foreach ($name in 'Password', 'PlainText') { $set.Parameters.ContainsKey($name) | Should-BeFalse }
-        foreach ($name in 'IncludeClearPassword', 'AsPlainText') { $get.Parameters.ContainsKey($name) | Should-BeFalse }
-        $set.Parameters['Secret'].ParameterType | Should-Be ([securestring])
+        foreach ($command in 'New-WinCredential', 'Set-WinCredential') {
+            foreach ($name in 'Password', 'PlainText') { (Get-Command $command).Parameters.ContainsKey($name) | Should-BeFalse }
+            (Get-Command $command).Parameters['Secret'].ParameterType | Should-Be ([securestring])
+        }
+        foreach ($name in 'IncludeClearPassword', 'AsPlainText') { (Get-Command Get-WinCredential).Parameters.ContainsKey($name) | Should-BeFalse }
     }
 
-    It 'requires -Target for Set- and Remove-WinCredential' {
-        foreach ($command in 'Set-WinCredential', 'Remove-WinCredential') {
+    It 'requires -Target for New-, Set- and Remove-WinCredential' {
+        foreach ($command in 'New-WinCredential', 'Set-WinCredential', 'Remove-WinCredential') {
             $mandatory = (Get-Command $command).Parameters['Target'].Attributes | Where-Object { $_ -is [Parameter] -and $_.Mandatory }
             Should-BeCollection -Actual @($mandatory) -Count 1
         }
     }
 
-    It 'supports -WhatIf and -Confirm on Set- and Remove-WinCredential' {
-        foreach ($command in 'Set-WinCredential', 'Remove-WinCredential') {
+    It 'supports -WhatIf and -Confirm on every command that writes' {
+        foreach ($command in 'New-WinCredential', 'Set-WinCredential', 'Remove-WinCredential') {
             (Get-Command $command).Parameters.ContainsKey('WhatIf') | Should-BeTrue
             (Get-Command $command).Parameters.ContainsKey('Confirm') | Should-BeTrue
         }
     }
 
+    It 'asks for confirmation by default before overwriting or deleting' {
+        Get-ConfirmImpact 'Set-WinCredential' | Should-Be ([System.Management.Automation.ConfirmImpact]::High)
+        Get-ConfirmImpact 'Remove-WinCredential' | Should-Be ([System.Management.Automation.ConfirmImpact]::High)
+        Get-ConfirmImpact 'New-WinCredential' | Should-Be ([System.Management.Automation.ConfirmImpact]::Medium)
+    }
+
+    It 'binds piped credential objects to -LiteralTarget, never to the wildcard -Target' {
+        $get = Get-Command Get-WinCredential
+        @($get.Parameters['Target'].Attributes | Where-Object { $_ -is [Parameter] -and $_.ValueFromPipelineByPropertyName }).Count | Should-Be 0
+        @($get.Parameters['LiteralTarget'].Attributes | Where-Object { $_ -is [Parameter] -and $_.ValueFromPipelineByPropertyName }).Count | Should-BeGreaterThan 0
+        $get.Parameters['LiteralTarget'].Aliases | Should-Be 'TargetName'
+    }
+
     It 'loads cmdlet help' -Tag 'Help' {
         (Get-Help Get-WinCredential).Synopsis | Should-Be 'Gets credentials from Windows Credential Manager.'
-        (Get-Help Set-WinCredential).Synopsis | Should-Be 'Creates or replaces a credential in Windows Credential Manager.'
+        (Get-Help New-WinCredential).Synopsis | Should-Be 'Creates a credential in Windows Credential Manager.'
+        (Get-Help Set-WinCredential).Synopsis | Should-Be 'Changes an existing credential in Windows Credential Manager.'
         (Get-Help Remove-WinCredential).Synopsis | Should-Be 'Deletes a credential from Windows Credential Manager.'
     }
 
@@ -111,74 +135,117 @@ Describe 'Module surface' {
     }
 }
 
-Describe 'Set-WinCredential input validation' {
+Describe 'Input validation' {
     # These cases fail before any call to Windows, so nothing can be written
 
     It 'fails without a secret instead of prompting or generating one' {
-        { Set-WinCredential -Target (Get-TestTarget 'nosecret') -UserName 'u' } | Should-Throw -FullyQualifiedErrorId 'MissingSecret,*'
+        { New-WinCredential -Target (Get-TestTarget 'nosecret') -UserName 'u' } | Should-Throw -FullyQualifiedErrorId 'MissingSecret,*'
     }
 
     It 'rejects -Secret together with -Credential' {
         $credential = [pscredential]::new('u', (ConvertTo-TestSecret 'x'))
-        { Set-WinCredential -Target (Get-TestTarget 'both') -Secret (ConvertTo-TestSecret 'y') -Credential $credential } |
+        { New-WinCredential -Target (Get-TestTarget 'both') -Secret (ConvertTo-TestSecret 'y') -Credential $credential } |
             Should-Throw -FullyQualifiedErrorId 'AmbiguousParameterSet,*'
     }
 
     It 'rejects credential types it cannot write' {
-        { Set-WinCredential -Target (Get-TestTarget 'cert') -Secret (ConvertTo-TestSecret 'x') -Type DomainCertificate } |
+        { New-WinCredential -Target (Get-TestTarget 'cert') -Secret (ConvertTo-TestSecret 'x') -Type DomainCertificate } |
             Should-Throw -FullyQualifiedErrorId 'ParameterArgumentValidationError,*'
     }
 
     It 'rejects a generic target over 32766 characters' {
         # Windows accepts 32766, one fewer than CRED_MAX_GENERIC_TARGET_NAME_LENGTH
-        { Set-WinCredential -Target ('t' * 32767) -Secret (ConvertTo-TestSecret 'x') } | Should-Throw -FullyQualifiedErrorId 'TargetTooLong,*'
+        { New-WinCredential -Target ('t' * 32767) -Secret (ConvertTo-TestSecret 'x') } | Should-Throw -FullyQualifiedErrorId 'TargetTooLong,*'
     }
 
-    It 'rejects a domain target over 253 characters' {
-        { Set-WinCredential -Target (Get-DomainTestTarget 254) -Secret (ConvertTo-TestSecret 'x') -Type DomainPassword -UserName 'd\u' } |
+    It 'rejects a domain target over 253 bytes' {
+        { New-WinCredential -Target (Get-DomainTestTarget 254) -Secret (ConvertTo-TestSecret 'x') -Type DomainPassword -UserName 'd\u' } |
             Should-Throw -FullyQualifiedErrorId 'TargetTooLong,*'
     }
 
-    It 'rejects a domain target label over 63 characters' {
-        { Set-WinCredential -Target (Get-TestTarget ('a' * 64)) -Secret (ConvertTo-TestSecret 'x') -Type DomainPassword -UserName 'd\u' } |
+    It 'rejects a domain target label over 63 bytes' {
+        { New-WinCredential -Target (Get-TestTarget ('a' * 64)) -Secret (ConvertTo-TestSecret 'x') -Type DomainPassword -UserName 'd\u' } |
+            Should-Throw -FullyQualifiedErrorId 'TargetLabelTooLong,*'
+    }
+
+    It 'counts domain labels in UTF-8 bytes' {
+        # 32 x e-acute is 32 characters but 64 UTF-8 bytes; Windows accepts at most 31
+        $label = [string][char]0xE9 * 32
+        { New-WinCredential -Target (Get-TestTarget $label) -Secret (ConvertTo-TestSecret 'x') -Type DomainPassword -UserName 'd\u' } |
             Should-Throw -FullyQualifiedErrorId 'TargetLabelTooLong,*'
     }
 
     It 'allows long labels in generic targets' {
         # Only domain targets are host names; this fails later, on the missing secret, not on the label
-        { Set-WinCredential -Target (Get-TestTarget ('a' * 64)) } | Should-Throw -FullyQualifiedErrorId 'MissingSecret,*'
+        { New-WinCredential -Target (Get-TestTarget ('a' * 64)) } | Should-Throw -FullyQualifiedErrorId 'MissingSecret,*'
     }
 
     It 'rejects a user name over 512 characters' {
-        { Set-WinCredential -Target (Get-TestTarget 'longuser') -Secret (ConvertTo-TestSecret 'x') -UserName ('u' * 513) } |
+        { New-WinCredential -Target (Get-TestTarget 'longuser') -Secret (ConvertTo-TestSecret 'x') -UserName ('u' * 513) } |
             Should-Throw -FullyQualifiedErrorId 'UserNameTooLong,*'
     }
 
     It 'rejects a comment over 255 characters' {
-        { Set-WinCredential -Target (Get-TestTarget 'longcomment') -Secret (ConvertTo-TestSecret 'x') -Comment ('c' * 256) } |
+        { New-WinCredential -Target (Get-TestTarget 'longcomment') -Secret (ConvertTo-TestSecret 'x') -Comment ('c' * 256) } |
             Should-Throw -FullyQualifiedErrorId 'CommentTooLong,*'
     }
 
+    It 'rejects a control character in the <Field>' -ForEach $controlCharacters {
+        $values = @{ Target = (Get-TestTarget 'control'); UserName = 'u'; Comment = 'c' }
+        $values[$Field] = "line`nbreak"
+        { New-WinCredential @values -Secret (ConvertTo-TestSecret 'x') } | Should-Throw -FullyQualifiedErrorId 'InvalidCharacters,*'
+    }
+
+    It 'requires a DOMAIN\user or user@domain user name for DomainPassword credentials' {
+        foreach ($userName in $null, 'plain', '\user', 'DOMAIN\', '@domain', 'user@') {
+            $parameters = @{ Target = (Get-TestTarget 'domainuser'); Type = 'DomainPassword'; Secret = (ConvertTo-TestSecret 'x') }
+            if ($null -ne $userName) { $parameters.UserName = $userName }
+            { New-WinCredential @parameters } | Should-Throw -FullyQualifiedErrorId 'InvalidUserName,*'
+        }
+        { Set-WinCredential -Target (Get-TestTarget 'domainuser') -Type DomainPassword -UserName 'plain' -Confirm:$false } |
+            Should-Throw -FullyQualifiedErrorId 'InvalidUserName,*'
+    }
+
     It 'rejects <Length> x ''<Char>'' as a <Encoding> secret' -ForEach ($blobSizes | Where-Object { -not $_.Fits }) {
-        { Set-WinCredential -Target (Get-TestTarget 'toolarge') -Secret (ConvertTo-TestSecret ($Char * $Length)) -Encoding $Encoding } |
+        { New-WinCredential -Target (Get-TestTarget 'toolarge') -Secret (ConvertTo-TestSecret ($Char * $Length)) -Encoding $Encoding } |
             Should-Throw -FullyQualifiedErrorId 'SecretTooLarge,*'
+    }
+
+    It 'rejects a secret that is not valid Unicode as <Encoding> instead of altering it' -ForEach $encodings {
+        $loneSurrogate = 'a' + [char]0xD800 + 'b'
+        { New-WinCredential -Target (Get-TestTarget 'surrogate') -Secret (ConvertTo-TestSecret $loneSurrogate) -Encoding $Encoding } |
+            Should-Throw -FullyQualifiedErrorId 'SecretNotEncodable,*'
+    }
+
+    It 'rejects Set-WinCredential without anything to change' {
+        { Set-WinCredential -Target (Get-TestTarget 'nothing') -Confirm:$false } | Should-Throw -FullyQualifiedErrorId 'NothingToSet,*'
+    }
+
+    It 'rejects -Encoding on Set-WinCredential without a new secret' {
+        { Set-WinCredential -Target (Get-TestTarget 'encoding') -Comment 'c' -Encoding UTF8 -Confirm:$false } |
+            Should-Throw -FullyQualifiedErrorId 'EncodingWithoutSecret,*'
     }
 }
 
 Describe 'Credential store' -Tag 'Store' {
     BeforeAll {
+        # Leftovers of interrupted runs; every WinCred.Test.* credential belongs to this suite
+        Get-WinCredential -Target 'WinCred.Test.*' | Remove-WinCredential -Confirm:$false
         $secret = ConvertTo-TestSecret 'P@ss word 1'
     }
 
     AfterAll {
-        # Remove everything this run created, including after failures
         Get-WinCredential -Target "$prefix*" | Remove-WinCredential -Confirm:$false
+        $left = @(Get-WinCredential -Target "$prefix*")
+        if ($left.Count -gt 0) {
+            throw "Cleanup left $($left.Count) test credential(s): $($left.TargetName -join ', ')"
+        }
     }
 
     Context 'Create and read' {
         BeforeAll {
             $target = Get-TestTarget 'main'
-            $result = Set-WinCredential -Target $target -UserName 'test-user' -Secret $secret
+            $result = New-WinCredential -Target $target -UserName 'test-user' -Secret $secret
         }
 
         It 'returns nothing without -PassThru' {
@@ -193,17 +260,15 @@ Describe 'Credential store' -Tag 'Store' {
             $credential.Persist | Should-Be ([WinCred.CredPersist]::Session)
             Should-BeNull -Actual $credential.Comment
             Should-BeNull -Actual $credential.Secret
-            $credential.LastWritten | Should-BeGreaterThan ((Get-Date).AddMinutes(-10))
+            $credential.LastWritten | Should-BeGreaterThan ([DateTimeOffset]::Now.AddMinutes(-10))
         }
 
         It 'reads the secret with -IncludeSecret' {
-            $credential = Get-WinCredential -Target $target -IncludeSecret
-            ConvertTo-PlainText $credential.Secret | Should-Be 'P@ss word 1'
+            ConvertTo-PlainText (Get-WinCredential -Target $target -IncludeSecret).Secret | Should-Be 'P@ss word 1'
         }
 
         It 'stores the secret as Unicode by default' {
-            $credential = Get-WinCredential -Target $target -IncludeSecret -Encoding Unicode
-            ConvertTo-PlainText $credential.Secret | Should-Be 'P@ss word 1'
+            ConvertTo-PlainText (Get-WinCredential -Target $target -IncludeSecret -Encoding Unicode).Secret | Should-Be 'P@ss word 1'
         }
 
         It 'reads a PSCredential with -AsPSCredential' {
@@ -228,43 +293,98 @@ Describe 'Credential store' -Tag 'Store' {
             (Get-WinCredential -Target $target.ToUpperInvariant()).TargetName | Should-Be $target
         }
 
-        It 'returns the written credential without its secret with -PassThru' {
-            $written = Set-WinCredential -Target (Get-TestTarget 'passthru') -UserName 'u' -Secret $secret -PassThru
-            $written.TargetName | Should-Be (Get-TestTarget 'passthru')
-            Should-BeNull -Actual $written.Secret
+        It 'returns the created credential without its secret with -PassThru' {
+            $created = New-WinCredential -Target (Get-TestTarget 'passthru') -UserName 'u' -Secret $secret -PassThru
+            $created.TargetName | Should-Be (Get-TestTarget 'passthru')
+            Should-BeNull -Actual $created.Secret
         }
 
         It 'stores a PSCredential from the pipeline' {
-            [pscredential]::new('pipe-user', $secret) | Set-WinCredential -Target (Get-TestTarget 'pipe')
+            [pscredential]::new('pipe-user', $secret) | New-WinCredential -Target (Get-TestTarget 'pipe')
             (Get-WinCredential -Target (Get-TestTarget 'pipe')).UserName | Should-Be 'pipe-user'
+        }
+
+        It 'refuses to replace an existing credential' {
+            { New-WinCredential -Target $target -UserName 'other' -Secret (ConvertTo-TestSecret 'other') } |
+                Should-Throw -FullyQualifiedErrorId 'CredentialExists,*'
+            $credential = Get-WinCredential -Target $target -IncludeSecret
+            $credential.UserName | Should-Be 'test-user'
+            ConvertTo-PlainText $credential.Secret | Should-Be 'P@ss word 1'
         }
     }
 
     Context 'Update' {
-        BeforeAll {
-            $target = Get-TestTarget 'update'
-            Set-WinCredential -Target $target -UserName 'before' -Secret (ConvertTo-TestSecret 'old')
-            Set-WinCredential -Target $target -UserName 'after' -Secret (ConvertTo-TestSecret 'new') -Comment 'updated' -Persist LocalMachine
+        BeforeEach {
+            $target = Get-TestTarget "update.$([guid]::NewGuid().ToString('N'))"
+            New-WinCredential -Target $target -UserName 'before' -Secret (ConvertTo-TestSecret 'old') -Comment 'old comment'
         }
 
-        It 'replaces every field' {
+        It 'changes only the comment and keeps the secret, user name and persistence' {
+            Set-WinCredential -Target $target -Comment 'new comment' -Confirm:$false
+            $credential = Get-WinCredential -Target $target -IncludeSecret
+            $credential.Comment | Should-Be 'new comment'
+            $credential.UserName | Should-Be 'before'
+            $credential.Persist | Should-Be ([WinCred.CredPersist]::Session)
+            ConvertTo-PlainText $credential.Secret | Should-Be 'old'
+        }
+
+        It 'replaces the secret and keeps the other fields' {
+            Set-WinCredential -Target $target -Secret (ConvertTo-TestSecret 'new') -Confirm:$false
+            $credential = Get-WinCredential -Target $target -IncludeSecret
+            ConvertTo-PlainText $credential.Secret | Should-Be 'new'
+            $credential.UserName | Should-Be 'before'
+            $credential.Comment | Should-Be 'old comment'
+        }
+
+        It 'clears a field set to an empty string' {
+            Set-WinCredential -Target $target -UserName '' -Comment '' -Confirm:$false
+            $credential = Get-WinCredential -Target $target
+            [string]::IsNullOrEmpty($credential.UserName) | Should-BeTrue
+            [string]::IsNullOrEmpty($credential.Comment) | Should-BeTrue
+        }
+
+        It 'sets the user name and secret from a PSCredential' {
+            Set-WinCredential -Target $target -Credential ([pscredential]::new('after', (ConvertTo-TestSecret 'pscred'))) -Confirm:$false
             $credential = Get-WinCredential -Target $target -IncludeSecret
             $credential.UserName | Should-Be 'after'
-            $credential.Comment | Should-Be 'updated'
-            $credential.Persist | Should-Be ([WinCred.CredPersist]::LocalMachine)
-            ConvertTo-PlainText $credential.Secret | Should-Be 'new'
+            ConvertTo-PlainText $credential.Secret | Should-Be 'pscred'
+        }
+
+        It 'updates the credentials piped from Get-WinCredential' {
+            Get-WinCredential -Target $target | Set-WinCredential -Comment 'piped' -Confirm:$false
+            (Get-WinCredential -Target $target).Comment | Should-Be 'piped'
+        }
+
+        It 'changes nothing with -WhatIf' {
+            Set-WinCredential -Target $target -Comment 'whatif' -WhatIf
+            (Get-WinCredential -Target $target).Comment | Should-Be 'old comment'
         }
 
         It 'keeps exactly one credential for the target' {
+            Set-WinCredential -Target $target -Secret (ConvertTo-TestSecret 'again') -Confirm:$false
             Should-BeCollection -Actual @(Get-WinCredential -Target $target) -Count 1
+        }
+
+        It 'keeps LocalMachine persistence when only the secret changes' -Tag 'Persistent' {
+            Set-WinCredential -Target $target -Persist LocalMachine -Confirm:$false
+            Set-WinCredential -Target $target -Secret (ConvertTo-TestSecret 'rotated') -Confirm:$false
+            $credential = Get-WinCredential -Target $target -IncludeSecret
+            $credential.Persist | Should-Be ([WinCred.CredPersist]::LocalMachine)
+            ConvertTo-PlainText $credential.Secret | Should-Be 'rotated'
+        }
+
+        It 'reports a missing credential and creates nothing' {
+            $missing = Get-TestTarget 'update.missing'
+            { Set-WinCredential -Target $missing -Secret (ConvertTo-TestSecret 'x') -Confirm:$false } | Should-Throw -FullyQualifiedErrorId 'CredentialNotFound,*'
+            { Get-WinCredential -Target $missing } | Should-Throw -FullyQualifiedErrorId 'CredentialNotFound,*'
         }
     }
 
     Context 'Delete' {
         BeforeAll {
             $target = Get-TestTarget 'delete'
-            Set-WinCredential -Target $target -Secret $secret
-            Remove-WinCredential -Target $target
+            New-WinCredential -Target $target -Secret $secret
+            Remove-WinCredential -Target $target -Confirm:$false
         }
 
         It 'removes the credential' {
@@ -272,19 +392,31 @@ Describe 'Credential store' -Tag 'Store' {
         }
 
         It 'reports a repeated delete as not found' {
-            { Remove-WinCredential -Target $target } | Should-Throw -FullyQualifiedErrorId 'CredentialNotFound,*'
+            { Remove-WinCredential -Target $target -Confirm:$false } | Should-Throw -FullyQualifiedErrorId 'CredentialNotFound,*'
         }
 
         It 'removes the credentials piped from Get-WinCredential' {
-            Set-WinCredential -Target (Get-TestTarget 'bulk.1') -Secret $secret
-            Set-WinCredential -Target (Get-TestTarget 'bulk.2') -Secret $secret
+            New-WinCredential -Target (Get-TestTarget 'bulk.1') -Secret $secret
+            New-WinCredential -Target (Get-TestTarget 'bulk.2') -Secret $secret
             Should-BeCollection -Actual @(Get-WinCredential -Target (Get-TestTarget 'bulk.*')) -Count 2
-            Get-WinCredential -Target (Get-TestTarget 'bulk.*') | Remove-WinCredential
+            Get-WinCredential -Target (Get-TestTarget 'bulk.*') | Remove-WinCredential -Confirm:$false
             Should-BeCollection -Actual @(Get-WinCredential -Target (Get-TestTarget 'bulk.*')) -Count 0
+        }
+
+        It 'removes nothing with -WhatIf' {
+            New-WinCredential -Target (Get-TestTarget 'keep') -Secret $secret
+            Remove-WinCredential -Target (Get-TestTarget 'keep') -WhatIf
+            (Get-WinCredential -Target (Get-TestTarget 'keep')).TargetName | Should-Be (Get-TestTarget 'keep')
         }
     }
 
-    Context 'Missing target' {
+    Context 'Lookup' {
+        BeforeAll {
+            $bracketTarget = Get-TestTarget 'lit[1]'
+            New-WinCredential -Target $bracketTarget -Secret $secret
+            New-WinCredential -Target (Get-TestTarget 'lit1') -Secret $secret
+        }
+
         It 'writes CredentialNotFound for an exact target' {
             { Get-WinCredential -Target (Get-TestTarget 'missing') } | Should-Throw -FullyQualifiedErrorId 'CredentialNotFound,*'
         }
@@ -298,33 +430,43 @@ Describe 'Credential store' -Tag 'Store' {
         }
 
         It 'respects -Type' {
-            Set-WinCredential -Target (Get-TestTarget 'typed') -Secret $secret
-            { Get-WinCredential -Target (Get-TestTarget 'typed') -Type DomainPassword } | Should-Throw -FullyQualifiedErrorId 'CredentialNotFound,*'
+            { Get-WinCredential -Target (Get-TestTarget 'lit1') -Type DomainPassword } | Should-Throw -FullyQualifiedErrorId 'CredentialNotFound,*'
         }
 
         It 'treats an escaped wildcard character literally' {
-            Set-WinCredential -Target (Get-TestTarget 'lit[1]') -Secret $secret
-            (Get-WinCredential -Target (Get-TestTarget 'lit`[1`]')).TargetName | Should-Be (Get-TestTarget 'lit[1]')
+            (Get-WinCredential -Target (Get-TestTarget 'lit`[1`]')).TargetName | Should-Be $bracketTarget
         }
-    }
 
-    Context 'Missing secret' {
-        It 'writes nothing' {
-            { Set-WinCredential -Target (Get-TestTarget 'nosecret') -UserName 'u' } | Should-Throw -FullyQualifiedErrorId 'MissingSecret,*'
-            { Get-WinCredential -Target (Get-TestTarget 'nosecret') } | Should-Throw -FullyQualifiedErrorId 'CredentialNotFound,*'
+        It 'matches -LiteralTarget exactly' {
+            $found = @(Get-WinCredential -LiteralTarget $bracketTarget)
+            Should-BeCollection -Actual $found -Count 1
+            $found[0].TargetName | Should-Be $bracketTarget
+        }
+
+        It 'round-trips piped credential objects literally' {
+            # As a wildcard, 'lit[1]' would match 'lit1' instead
+            $found = @(Get-WinCredential -LiteralTarget $bracketTarget | Get-WinCredential)
+            Should-BeCollection -Actual $found -Count 1
+            $found[0].TargetName | Should-Be $bracketTarget
+        }
+
+        It 'finds a DomainPassword credential by exact name without -Type' {
+            $domainTarget = Get-TestTarget 'lookup-domain'
+            New-WinCredential -Target $domainTarget -Type DomainPassword -UserName $domainUser -Secret $secret
+            (Get-WinCredential -Target $domainTarget).Type | Should-Be ([WinCred.CredType]::DomainPassword)
         }
     }
 
     Context 'Empty user name' {
         It 'stores a credential without a user name' {
-            Set-WinCredential -Target (Get-TestTarget 'nouser') -Secret $secret
+            New-WinCredential -Target (Get-TestTarget 'nouser') -Secret $secret
             $credential = Get-WinCredential -Target (Get-TestTarget 'nouser') -IncludeSecret
             [string]::IsNullOrEmpty($credential.UserName) | Should-BeTrue
             ConvertTo-PlainText $credential.Secret | Should-Be 'P@ss word 1'
         }
 
         It 'stores an explicitly empty user name' {
-            Set-WinCredential -Target (Get-TestTarget 'emptyuser') -UserName '' -Secret $secret
+            New-WinCredential -Target (Get-TestTarget 'emptyuser') -UserName '' -Secret $secret
             [string]::IsNullOrEmpty((Get-WinCredential -Target (Get-TestTarget 'emptyuser')).UserName) | Should-BeTrue
         }
 
@@ -337,7 +479,7 @@ Describe 'Credential store' -Tag 'Store' {
         BeforeAll {
             $target = Get-TestTarget "unicode.$Encoding.$unicodeText"
             $userName = "user.$unicodeText"
-            Set-WinCredential -Target $target -UserName $userName -Secret (ConvertTo-TestSecret $unicodeText) -Encoding $Encoding
+            New-WinCredential -Target $target -UserName $userName -Secret (ConvertTo-TestSecret $unicodeText) -Encoding $Encoding
         }
 
         It 'round-trips the target, user name and secret' {
@@ -348,56 +490,83 @@ Describe 'Credential store' -Tag 'Store' {
         }
     }
 
-    Context 'Persistence <Persist>' -ForEach $persistModes {
-        It 'stores and reads <Persist> persistence' {
-            $target = Get-TestTarget "persist.$Persist"
-            Set-WinCredential -Target $target -Secret $secret -Persist $Persist
-            (Get-WinCredential -Target $target).Persist | Should-Be ([WinCred.CredPersist]$Persist)
+    Context 'Encoding mismatch' {
+        It 'reports a secret that is not valid in the requested encoding and still returns the credential' {
+            $target = Get-TestTarget 'mismatch'
+            # 3 bytes of UTF-8 cannot be UTF-16
+            New-WinCredential -Target $target -Secret (ConvertTo-TestSecret 'abc') -Encoding UTF8
+            $credential = Get-WinCredential -Target $target -IncludeSecret -ErrorAction SilentlyContinue -ErrorVariable errors
+            $credential.TargetName | Should-Be $target
+            Should-BeNull -Actual $credential.Secret
+            $errors[0].FullyQualifiedErrorId | Should-BeLikeString 'SecretNotDecodable,*'
+        }
+    }
+
+    Context 'Persistence' {
+        It 'stores and reads Session persistence' {
+            New-WinCredential -Target (Get-TestTarget 'persist.Session') -Secret $secret -Persist Session
+            (Get-WinCredential -Target (Get-TestTarget 'persist.Session')).Persist | Should-Be ([WinCred.CredPersist]::Session)
+        }
+
+        It 'stores and reads LocalMachine persistence' -Tag 'Persistent' {
+            New-WinCredential -Target (Get-TestTarget 'persist.LocalMachine') -Secret $secret -Persist LocalMachine
+            (Get-WinCredential -Target (Get-TestTarget 'persist.LocalMachine')).Persist | Should-Be ([WinCred.CredPersist]::LocalMachine)
+        }
+
+        It 'stores and reads Enterprise persistence' -Tag 'Persistent', 'Roaming' {
+            New-WinCredential -Target (Get-TestTarget 'persist.Enterprise') -Secret $secret -Persist Enterprise
+            (Get-WinCredential -Target (Get-TestTarget 'persist.Enterprise')).Persist | Should-Be ([WinCred.CredPersist]::Enterprise)
         }
     }
 
     Context 'Secret size limits' {
         It 'stores and reads <Length> x ''<Char>'' as a <Encoding> secret' -ForEach ($blobSizes | Where-Object { $_.Fits }) {
             $target = Get-TestTarget "size.$Encoding.$Length.$([int][char]$Char)"
-            Set-WinCredential -Target $target -Secret (ConvertTo-TestSecret ($Char * $Length)) -Encoding $Encoding
+            New-WinCredential -Target $target -Secret (ConvertTo-TestSecret ($Char * $Length)) -Encoding $Encoding
             (Get-WinCredential -Target $target -IncludeSecret -Encoding $Encoding).Secret.Length | Should-Be $Length
         }
 
         It 'stores nothing for <Length> x ''<Char>'' as a <Encoding> secret' -ForEach ($blobSizes | Where-Object { -not $_.Fits }) {
             $target = Get-TestTarget "size.$Encoding.$Length.$([int][char]$Char)"
-            { Set-WinCredential -Target $target -Secret (ConvertTo-TestSecret ($Char * $Length)) -Encoding $Encoding } | Should-Throw -FullyQualifiedErrorId 'SecretTooLarge,*'
+            { New-WinCredential -Target $target -Secret (ConvertTo-TestSecret ($Char * $Length)) -Encoding $Encoding } | Should-Throw -FullyQualifiedErrorId 'SecretTooLarge,*'
             { Get-WinCredential -Target $target } | Should-Throw -FullyQualifiedErrorId 'CredentialNotFound,*'
         }
     }
 
     Context 'Field length limits' {
-        # Each case writes exactly at the limit Set-WinCredential enforces, so Windows MUST accept it
+        # Each case writes exactly at the limit WinCred enforces, so Windows MUST accept it
 
         It 'stores a generic target of 32766 characters' {
             $target = (Get-TestTarget 'longtarget.').PadRight(32766, 't')
-            Set-WinCredential -Target $target -Secret $secret
+            New-WinCredential -Target $target -Secret $secret
             (Get-WinCredential -Target $target).TargetName.Length | Should-Be 32766
         }
 
-        It 'stores a domain target of 253 characters' {
+        It 'stores a domain target of 253 bytes' {
             $target = Get-DomainTestTarget 253
-            Set-WinCredential -Target $target -Type DomainPassword -UserName "$env:COMPUTERNAME\wincred-test" -Secret $secret
+            New-WinCredential -Target $target -Type DomainPassword -UserName $domainUser -Secret $secret
             (Get-WinCredential -Target $target -Type DomainPassword).TargetName.Length | Should-Be 253
         }
 
-        It 'stores a domain target label of 63 characters' {
+        It 'stores a domain target label of 63 bytes' {
             $target = Get-TestTarget ('a' * 63)
-            Set-WinCredential -Target $target -Type DomainPassword -UserName "$env:COMPUTERNAME\wincred-test" -Secret $secret
+            New-WinCredential -Target $target -Type DomainPassword -UserName $domainUser -Secret $secret
+            (Get-WinCredential -Target $target -Type DomainPassword).TargetName | Should-Be $target
+        }
+
+        It 'stores a non-ASCII domain target label of 62 UTF-8 bytes' {
+            $target = Get-TestTarget ([string][char]0xE9 * 31)
+            New-WinCredential -Target $target -Type DomainPassword -UserName $domainUser -Secret $secret
             (Get-WinCredential -Target $target -Type DomainPassword).TargetName | Should-Be $target
         }
 
         It 'stores a user name of 512 characters' {
-            Set-WinCredential -Target (Get-TestTarget 'longuser') -UserName ('u' * 512) -Secret $secret
+            New-WinCredential -Target (Get-TestTarget 'longuser') -UserName ('u' * 512) -Secret $secret
             (Get-WinCredential -Target (Get-TestTarget 'longuser')).UserName.Length | Should-Be 512
         }
 
         It 'stores a comment of 255 characters' {
-            Set-WinCredential -Target (Get-TestTarget 'longcomment') -Comment ('c' * 255) -Secret $secret
+            New-WinCredential -Target (Get-TestTarget 'longcomment') -Comment ('c' * 255) -Secret $secret
             (Get-WinCredential -Target (Get-TestTarget 'longcomment')).Comment.Length | Should-Be 255
         }
     }
@@ -405,7 +574,7 @@ Describe 'Credential store' -Tag 'Store' {
     Context 'Repeated operations' {
         It 'returns the same result for repeated reads' {
             $target = Get-TestTarget 'reread'
-            Set-WinCredential -Target $target -Secret $secret
+            New-WinCredential -Target $target -Secret $secret
             $reads = 1..3 | ForEach-Object { Get-WinCredential -Target $target -IncludeSecret }
             foreach ($read in $reads) {
                 ConvertTo-PlainText $read.Secret | Should-Be 'P@ss word 1'
@@ -413,31 +582,26 @@ Describe 'Credential store' -Tag 'Store' {
             }
         }
 
-        It 'keeps the last of repeated writes' {
+        It 'keeps the last of repeated updates' {
             $target = Get-TestTarget 'rewrite'
-            foreach ($i in 1..3) { Set-WinCredential -Target $target -Secret (ConvertTo-TestSecret "secret $i") }
+            New-WinCredential -Target $target -Secret $secret
+            foreach ($i in 1..3) { Set-WinCredential -Target $target -Secret (ConvertTo-TestSecret "secret $i") -Confirm:$false }
             Should-BeCollection -Actual @(Get-WinCredential -Target $target) -Count 1
             ConvertTo-PlainText (Get-WinCredential -Target $target -IncludeSecret).Secret | Should-Be 'secret 3'
         }
     }
 
     Context 'WhatIf' {
-        It 'writes nothing with Set-WinCredential -WhatIf' {
-            Set-WinCredential -Target (Get-TestTarget 'whatif') -Secret $secret -WhatIf
+        It 'writes nothing with New-WinCredential -WhatIf' {
+            New-WinCredential -Target (Get-TestTarget 'whatif') -Secret $secret -WhatIf
             { Get-WinCredential -Target (Get-TestTarget 'whatif') } | Should-Throw -FullyQualifiedErrorId 'CredentialNotFound,*'
-        }
-
-        It 'removes nothing with Remove-WinCredential -WhatIf' {
-            Set-WinCredential -Target (Get-TestTarget 'keep') -Secret $secret
-            Remove-WinCredential -Target (Get-TestTarget 'keep') -WhatIf
-            (Get-WinCredential -Target (Get-TestTarget 'keep')).TargetName | Should-Be (Get-TestTarget 'keep')
         }
     }
 
     Context 'Domain password' {
         BeforeAll {
             $target = Get-TestTarget 'domain'
-            Set-WinCredential -Target $target -Type DomainPassword -UserName "$env:COMPUTERNAME\wincred-test" -Secret $secret
+            New-WinCredential -Target $target -Type DomainPassword -UserName $domainUser -Secret $secret
         }
 
         It 'never returns the secret' {
@@ -450,8 +614,14 @@ Describe 'Credential store' -Tag 'Store' {
             { Get-WinCredential -Target $target -Type DomainPassword -AsPSCredential } | Should-Throw -FullyQualifiedErrorId 'SecretNotReadable,*'
         }
 
+        It 'keeps its secret when the comment changes' {
+            # CRED_PRESERVE_CREDENTIAL_BLOB keeps a secret WinCred cannot read
+            Set-WinCredential -Target $target -Type DomainPassword -Comment 'changed' -Confirm:$false
+            (Get-WinCredential -Target $target -Type DomainPassword).Comment | Should-Be 'changed'
+        }
+
         It 'is removed by type' {
-            Remove-WinCredential -Target $target -Type DomainPassword
+            Remove-WinCredential -Target $target -Type DomainPassword -Confirm:$false
             { Get-WinCredential -Target $target -Type DomainPassword } | Should-Throw -FullyQualifiedErrorId 'CredentialNotFound,*'
         }
     }

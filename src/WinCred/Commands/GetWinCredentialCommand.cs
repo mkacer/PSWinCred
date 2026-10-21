@@ -7,29 +7,40 @@ using System.Management.Automation;
 namespace WinCred.Commands
 {
     /// <summary>
-    /// Gets credentials from Windows Credential Manager. Secrets are included only on request.
+    /// Gets credentials from Windows Credential Manager. Secrets and attribute values are included only on request.
     /// </summary>
-    [Cmdlet(VerbsCommon.Get, "WinCredential", DefaultParameterSetName = InfoSet)]
-    [OutputType(typeof(WinCredential), ParameterSetName = new[] { InfoSet })]
-    [OutputType(typeof(PSCredential), ParameterSetName = new[] { PSCredentialSet })]
+    [Cmdlet(VerbsCommon.Get, "WinCredential", DefaultParameterSetName = Pattern)]
+    [OutputType(typeof(WinCredential), ParameterSetName = new[] { Pattern, Literal })]
+    [OutputType(typeof(PSCredential), ParameterSetName = new[] { PatternAsPSCredential, LiteralAsPSCredential })]
     public sealed class GetWinCredentialCommand : PSCmdlet
     {
-        private const string InfoSet = "WinCredential";
-        private const string PSCredentialSet = "PSCredential";
+        private const string Pattern = "Target";
+        private const string Literal = "LiteralTarget";
+        private const string PatternAsPSCredential = "TargetAsPSCredential";
+        private const string LiteralAsPSCredential = "LiteralTargetAsPSCredential";
 
-        [Parameter(Position = 0, ValueFromPipeline = true, ValueFromPipelineByPropertyName = true)]
-        [Alias("TargetName")]
+        [Parameter(Position = 0, ValueFromPipeline = true, ParameterSetName = Pattern)]
+        [Parameter(Position = 0, ValueFromPipeline = true, ParameterSetName = PatternAsPSCredential)]
         [SupportsWildcards]
         [ValidateNotNullOrEmpty]
         public string[]? Target { get; set; }
 
+        /// <summary>Exact names. Credential objects piped in bind here through their TargetName property.</summary>
+        [Parameter(Mandatory = true, ValueFromPipelineByPropertyName = true, ParameterSetName = Literal)]
+        [Parameter(Mandatory = true, ValueFromPipelineByPropertyName = true, ParameterSetName = LiteralAsPSCredential)]
+        [Alias("TargetName")]
+        [ValidateNotNullOrEmpty]
+        public string[] LiteralTarget { get; set; } = null!;
+
         [Parameter(ValueFromPipelineByPropertyName = true)]
         public CredType[]? Type { get; set; }
 
-        [Parameter(ParameterSetName = InfoSet)]
+        [Parameter(ParameterSetName = Pattern)]
+        [Parameter(ParameterSetName = Literal)]
         public SwitchParameter IncludeSecret { get; set; }
 
-        [Parameter(Mandatory = true, ParameterSetName = PSCredentialSet)]
+        [Parameter(Mandatory = true, ParameterSetName = PatternAsPSCredential)]
+        [Parameter(Mandatory = true, ParameterSetName = LiteralAsPSCredential)]
         public SwitchParameter AsPSCredential { get; set; }
 
         [Parameter]
@@ -37,14 +48,25 @@ namespace WinCred.Commands
 
         private readonly CredMan credMan = new CredMan();
 
+        private bool IncludeSecretValues => IncludeSecret || AsPSCredential;
+
         protected override void ProcessRecord()
         {
             HashSet<CredType>? types = Type == null ? null : new HashSet<CredType>(Type);
-            bool includeSecret = IncludeSecret || AsPSCredential;
+
+            if (ParameterSetName == Literal || ParameterSetName == LiteralAsPSCredential)
+            {
+                foreach (string name in LiteralTarget)
+                {
+                    WriteExact(name, types);
+                }
+                return;
+            }
 
             if (Target == null)
             {
-                WriteMatches(target => true, types, includeSecret);
+                // Lists the whole store: Windows decrypts every secret, and each is scrubbed after reading
+                WriteMatches(null, name => true, types);
                 return;
             }
 
@@ -53,80 +75,90 @@ namespace WinCred.Commands
                 if (WildcardPattern.ContainsWildcardCharacters(target))
                 {
                     var pattern = new WildcardPattern(target, WildcardOptions.IgnoreCase | WildcardOptions.CultureInvariant);
-                    WriteMatches(pattern.IsMatch, types, includeSecret);
+                    WriteMatches(TargetFilter.ForPattern(target), pattern.IsMatch, types);
                 }
                 else
                 {
-                    string literal = WildcardPattern.Unescape(target);
-                    if (!WriteExact(literal, types, includeSecret))
-                    {
-                        WriteError(Errors.NotFound(literal, types?.Count == 1 ? types.Single() : (CredType?)null));
-                    }
+                    WriteExact(WildcardPattern.Unescape(target), types);
                 }
             }
         }
 
-        // Target names are case-insensitive in Credential Manager
-        private bool WriteExact(string target, HashSet<CredType>? types, bool includeSecret)
+        // CredReadW per type: Windows decrypts only the requested credential, never the whole store
+        private void WriteExact(string target, HashSet<CredType>? types)
         {
-            if (types == null)
-            {
-                return WriteMatches(name => string.Equals(name, target, StringComparison.OrdinalIgnoreCase), null, includeSecret);
-            }
-
             bool found = false;
-            foreach (CredType type in types)
+            bool failed = false;
+            foreach (CredType type in types ?? (IEnumerable<CredType>)CredMan.AllTypes)
             {
-                WinCredential? credential;
+                ReadResult? result;
                 try
                 {
-                    credential = credMan.Read(target, type, includeSecret, Encoding);
+                    result = credMan.Read(target, type, IncludeSecretValues, Encoding);
                 }
                 catch (Win32Exception exception)
                 {
                     WriteError(Errors.Native(exception, "ReadFailed", ErrorCategory.ReadError, target));
+                    failed = true;
                     continue;
                 }
 
-                if (credential != null)
+                if (result != null)
                 {
                     found = true;
-                    Emit(credential);
+                    Emit(result);
                 }
             }
-            return found;
+
+            if (!found && !failed)
+            {
+                WriteError(Errors.NotFound(target, types?.Count == 1 ? types.Single() : (CredType?)null));
+            }
         }
 
-        private bool WriteMatches(Func<string, bool> matchTarget, HashSet<CredType>? types, bool includeSecret)
+        private void WriteMatches(string? filter, Func<string, bool> matchTarget, HashSet<CredType>? types)
         {
-            List<WinCredential> credentials;
+            List<ReadResult> results;
             try
             {
-                credentials = credMan.Enumerate((name, type) => (types == null || types.Contains(type)) && matchTarget(name), includeSecret, Encoding);
+                results = credMan.Enumerate(filter, (name, type) => (types == null || types.Contains(type)) && matchTarget(name), IncludeSecretValues, Encoding);
             }
             catch (Win32Exception exception)
             {
                 WriteError(Errors.Native(exception, "EnumerateFailed", ErrorCategory.ReadError, null));
-                // Not "not found": the caller already sees why
-                return true;
-            }
-
-            foreach (WinCredential credential in credentials)
-            {
-                Emit(credential);
-            }
-            return credentials.Count > 0;
-        }
-
-        private void Emit(WinCredential credential)
-        {
-            if (!AsPSCredential)
-            {
-                WriteObject(credential);
                 return;
             }
 
-            if (credential.Secret == null)
+            foreach (ReadResult result in results)
+            {
+                Emit(result);
+            }
+        }
+
+        private void Emit(ReadResult result)
+        {
+            WinCredential? credential = result.Credential;
+            if (credential == null)
+            {
+                WriteError(new ErrorRecord(result.Error, "ConversionFailed", ErrorCategory.ReadError, result.TargetName));
+                return;
+            }
+
+            if (result.Error != null)
+            {
+                // The secret could not be decoded; the credential is still reported, without it
+                WriteError(new ErrorRecord(result.Error, "SecretNotDecodable", ErrorCategory.InvalidData, credential.TargetName));
+                if (AsPSCredential)
+                {
+                    return;
+                }
+            }
+
+            if (!AsPSCredential)
+            {
+                WriteObject(credential);
+            }
+            else if (credential.Secret == null)
             {
                 WriteError(new ErrorRecord(
                     new InvalidOperationException($"Windows does not return the secret of {credential.Type} credentials, so '{credential.TargetName}' cannot become a PSCredential."),

@@ -319,7 +319,7 @@ try {
     # Q4: CRED_FLAGS_* on write and read, one bit at a time, then written back unchanged
     Invoke-Question 'Q4' {
         foreach ($bit in 0..15) {
-            $flag = [uint32](1 -shl $bit)
+            $flag = [uint32][math]::Pow(2, $bit)
             $flagTarget = "WinCred.Probe.flag$bit"
             $code = Invoke-ProbeWrite (Get-ProbeCredential -Target $flagTarget -UserName 'probe-user' -Flags $flag)
             if ($code -eq 0) {
@@ -401,7 +401,7 @@ try {
             "S1 credentials (excluding probes): $($store.Count)"
             "S2 by type: $(($store | Group-Object Type | Sort-Object Name | ForEach-Object { "type $($_.Name) x$($_.Count)" }) -join ', ')"
             "S3 by persistence: $(($store | Group-Object Persist | Sort-Object Name | ForEach-Object { "persist $($_.Name) x$($_.Count)" }) -join ', ')"
-            $bits = foreach ($bit in 0..31) { $flag = [uint32](1 -shl $bit); $n = @($store | Where-Object { $_.Flags -band $flag }).Count; if ($n) { "0x$($flag.ToString('X'))x$n" } }
+            $bits = foreach ($bit in 0..31) { $flag = [uint32][math]::Pow(2, $bit); $n = @($store | Where-Object { $_.Flags -band $flag }).Count; if ($n) { "0x$($flag.ToString('X'))x$n" } }
             "S4 flag bits in use: $($bits -join ', ')"
             "S5 with attributes: $(@($store | Where-Object { $_.Attributes.Count }).Count); most attributes on one credential: $(($store | ForEach-Object { $_.Attributes.Count } | Measure-Object -Maximum).Maximum)"
             "S6 with a target alias: $(@($store | Where-Object { $_.TargetAlias }).Count)"
