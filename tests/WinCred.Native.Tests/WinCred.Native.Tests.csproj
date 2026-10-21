@@ -5,6 +5,9 @@
     <TargetFrameworks>net462;net10.0</TargetFrameworks>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!-- Microsoft.Testing.Platform: the test project is its own executable; no VSTest host. -->
+    <OutputType>Exe</OutputType>
+    <EnableMSTestRunner>true</EnableMSTestRunner>
     <Nullable>enable</Nullable>
     <!-- WinCred is Windows-only (CA1416), but these tests use a fake of the native API and run on any OS. -->
     <NoWarn>$(NoWarn);CA1416</NoWarn>
@@ -13,9 +16,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
     <PackageReference Include="MSTest.TestAdapter" Version="4.5.1" />
     <PackageReference Include="MSTest.TestFramework" Version="4.5.1" />
+    <!-- Keep in step with the Microsoft.Testing.Platform version MSTest uses. -->
+    <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" Version="2.5.1" />
   </ItemGroup>
 
   <ItemGroup>

@@ -10,6 +10,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # No usage telemetry from the .NET CLI or Microsoft.Testing.Platform
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  TESTINGPLATFORM_TELEMETRY_OPTOUT: '1'
+
 jobs:
   build:
     runs-on: windows-latest
@@ -21,7 +26,13 @@ jobs:
           global-json-file: global.json
 
       - name: Native unit tests (net462 and net10.0)
-        run: dotnet test WinCred.slnx --configuration Release
+        run: dotnet test --solution WinCred.slnx --configuration Release --report-trx --results-directory out/TestResults
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: Test results (native)
+          path: out/TestResults
 
       - name: Install pinned tools and verify signatures
         shell: pwsh
@@ -46,15 +57,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # PowerShell 7.4 and 7.5 reach end of support on 10 Nov 2026; remove them then.
+        # Supported: Windows PowerShell 5.1, the supported LTS releases of PowerShell 7, and any
+        # supported non-LTS release newer than the latest LTS. 7.4 LTS ends 10 Nov 2026; remove it then.
         # 7.6 LTS is supported until 14 Nov 2028.
         include:
           - name: Windows PowerShell 5.1
             version: ''
           - name: PowerShell 7.4
             version: 7.4.20
-          - name: PowerShell 7.5
-            version: 7.5.11
           - name: PowerShell 7.6
             version: 7.6.6
     name: Pester (${{ matrix.name }})

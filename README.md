@@ -8,7 +8,9 @@ WinCred is intentionally small. It is not a secret-management framework, an encr
 ## Requirements
 
 * Windows
-* Windows PowerShell 5.1 with .NET Framework 4.6.2 or later, or PowerShell 7.4 or later
+* Windows PowerShell 5.1 with .NET Framework 4.6.2 or later, or a supported PowerShell 7 release (see below)
+
+Supported PowerShell versions: Windows PowerShell 5.1, the supported LTS releases of PowerShell 7, and any supported non-LTS release newer than the latest LTS. Today that is 7.6 LTS, and 7.4 LTS until it reaches end of support on 10 November 2026. Other 7.x releases from 7.4 on can load the module but are not tested.
 
 The module ships two builds of WinCred.dll: `net462` for Windows PowerShell 5.1 and `net8.0` for PowerShell 7.4+. WinCred.psm1 loads the right one for the running edition. Neither build uses PowerShell 7's Windows PowerShell compatibility session. WinCred has no runtime dependencies.
 
@@ -76,7 +78,7 @@ Windows stores the secret as opaque bytes. WinCred uses Unicode (UTF-16LE) by de
 You need the .NET SDK from [global.json](global.json), and Windows for the tests that touch the credential store.
 
 ```powershell
-dotnet test WinCred.slnx                   # Native-layer unit tests (MSTest); net462 needs Windows
+dotnet test --solution WinCred.slnx        # Native-layer unit tests (MSTest on Microsoft.Testing.Platform); net462 needs Windows
 ./tools/Install-Tools.ps1                  # Pinned Pester, PSScriptAnalyzer and PlatyPS into .tools, signatures verified
 ./tools/Invoke-ScriptAnalysis.ps1          # PSScriptAnalyzer with PSScriptAnalyzerSettings.psd1
 ./build.ps1                                # Module with help into out/WinCred
@@ -89,7 +91,7 @@ pwsh -File ./tests/Invoke-Tests.ps1 -ExcludeTag Store   # Without touching your 
 
 Tool versions are pinned in [tools/tools.psd1](tools/tools.psd1). `Install-Tools.ps1` uses PSResourceGet, which ships with PowerShell 7.4+; in Windows PowerShell 5.1, run `Install-Module Microsoft.PowerShell.PSResourceGet -Scope CurrentUser` first. Help is written in [Microsoft.PowerShell.PlatyPS](https://github.com/PowerShell/platyPS) markdown; PlatyPS 1.0 does not write parameter default values into the compiled help, so each description states its default. The version number MUST be changed in both `Directory.Build.props` and `src/WinCred/WinCred.psd1`; `build.ps1` fails when they differ.
 
-GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the unit tests, PSScriptAnalyzer and the build, then the Pester tests in Windows PowerShell 5.1 and PowerShell 7.4, 7.5 and 7.6. A tag starting with `v` creates a draft release with WinCred.zip. [CodeQL](.github/workflows/codeql.yml) analyzes the C# code and the workflows on every push, pull request and weekly. [Dependabot](.github/dependabot.yml) proposes updates to the pinned Actions and NuGet packages after they are 14 days old.
+GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the unit tests, PSScriptAnalyzer and the build, then the Pester tests in Windows PowerShell 5.1 and PowerShell 7.4 and 7.6. A tag starting with `v` creates a draft release with WinCred.zip. [CodeQL](.github/workflows/codeql.yml) analyzes the C# code and the workflows on every push, pull request and weekly. [Dependabot](.github/dependabot.yml) proposes updates to the pinned Actions and NuGet packages after they are 14 days old.
 
 ## History
 
@@ -100,7 +102,7 @@ GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the u
 - `-Encoding` (Unicode or UTF8), `-WhatIf`/`-Confirm`, `-PassThru`, wildcard targets, pipeline from Get- to Remove-WinCredential
 - Size limits checked before writing; oversized secrets never reach Windows
 - Builds for net462 (Windows PowerShell 5.1) and net8.0 (PowerShell 7.4+); no runtime dependencies
-- Tests: MSTest for the native layer, Pester 6 against the real credential store in both editions; PSScriptAnalyzer; .NET analyzers at the recommended level; CodeQL; pinned, signature-checked tools installed with PSResourceGet; help built with Microsoft.PowerShell.PlatyPS 1.0
+- Tests: MSTest on Microsoft.Testing.Platform for the native layer, Pester 6 against the real credential store in both editions; PSScriptAnalyzer; .NET analyzers at the recommended level; CodeQL; pinned, signature-checked tools installed with PSResourceGet; help built with Microsoft.PowerShell.PlatyPS 1.0
 
 ### TUN.CredentialManager history
 
