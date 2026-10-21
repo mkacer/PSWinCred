@@ -1,28 +1,30 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Builds the StoredCredential module into out/StoredCredential.
+    Builds the WinCred module into out/WinCred.
 .DESCRIPTION
-    Compiles both target frameworks, copies the manifest, loader and license,
-    and compiles docs/en-US/*.md to MAML help with Microsoft's platyPS module.
-    Install platyPS first: Install-Module platyPS -RequiredVersion 0.14.2 -Scope CurrentUser
+    Compiles both target frameworks, copies the manifest, loader, format file, about topic and license,
+    and compiles docs/en-US/*.md to MAML help with Microsoft's platyPS module from .tools.
+    Run tools/Install-Tools.ps1 first.
 .PARAMETER SkipHelp
-    Builds without help files, for machines without platyPS.
+    Builds without cmdlet help, for machines without platyPS.
 #>
 [CmdletBinding()]
 param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
 
+    [string]$ToolsPath = (Join-Path $PSScriptRoot '.tools'),
+
     [switch]$SkipHelp
 )
 
 $ErrorActionPreference = 'Stop'
 
-$moduleName = 'StoredCredential'
+$moduleName = 'WinCred'
 $projectDir = Join-Path $PSScriptRoot "src/$moduleName"
 $outDir = Join-Path $PSScriptRoot "out/$moduleName"
-$frameworks = 'net462', 'netstandard2.0'
+$frameworks = 'net462', 'net8.0'
 
 # The manifest and the assembly MUST carry the same version
 $manifestVersion = (Import-PowerShellDataFile (Join-Path $projectDir "$moduleName.psd1")).ModuleVersion
@@ -37,7 +39,11 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet build failed with exit code $LASTEXITCO
 if (Test-Path $outDir) { Remove-Item $outDir -Recurse -Force }
 New-Item $outDir -ItemType Directory | Out-Null
 
-Copy-Item (Join-Path $projectDir "$moduleName.psd1"), (Join-Path $projectDir "$moduleName.psm1"), (Join-Path $PSScriptRoot 'License') $outDir
+Copy-Item -Path (Join-Path $projectDir "$moduleName.psd1"), (Join-Path $projectDir "$moduleName.psm1"),
+    (Join-Path $projectDir "$moduleName.Format.ps1xml"), (Join-Path $PSScriptRoot 'License') -Destination $outDir
+
+# About topics are found in the module's own culture folder
+Copy-Item -Path (Join-Path $projectDir 'en-US') -Destination $outDir -Recurse
 
 foreach ($framework in $frameworks) {
     $frameworkDir = New-Item (Join-Path $outDir $framework) -ItemType Directory
@@ -45,11 +51,12 @@ foreach ($framework in $frameworks) {
 }
 
 if (-not $SkipHelp) {
-    Import-Module platyPS -RequiredVersion 0.14.2
-    # PowerShell looks for cmdlet help next to the assembly that defines the cmdlets
+    $platyPSVersion = (Import-PowerShellDataFile (Join-Path $PSScriptRoot 'tools/tools.psd1')).platyPS.Version
+    Import-Module (Join-Path $ToolsPath "platyPS/$platyPSVersion/platyPS.psd1") -Force
+    # Cmdlet help is found next to the assembly that defines the cmdlets
     foreach ($framework in $frameworks) {
         New-ExternalHelp -Path (Join-Path $PSScriptRoot 'docs/en-US') -OutputPath (Join-Path $outDir "$framework/en-US") -Force | Out-Null
     }
 }
 
-Write-Host "Module built in $outDir"
+Write-Information "Module built in $outDir" -InformationAction Continue

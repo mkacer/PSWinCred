@@ -191,3 +191,6 @@ _Pvt_Extensions/
 ModelManifest.xml
 # Build output
 out/
+
+# Pinned build and test tools (tools/Install-Tools.ps1)
+.tools/

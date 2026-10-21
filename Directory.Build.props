@@ -5,7 +5,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Authors>Michael Kacer, Dave Garnar, Markus Szumovski</Authors>
     <Copyright>(c) 2016 Dave Garnar, 2022 Markus Szumovski, 2026 Michael Kacer. MIT License.</Copyright>
-    <!-- Keep in sync with ModuleVersion in StoredCredential.psd1; build.ps1 checks this. -->
-    <Version>4.0.0</Version>
+    <!-- Keep in sync with ModuleVersion in WinCred.psd1; build.ps1 checks this. -->
+    <Version>1.0.0</Version>
   </PropertyGroup>
 </Project>

@@ -1,0 +1,58 @@
+#Requires -Version 5.1
+<#
+.SYNOPSIS
+    Saves the pinned build and test tools to .tools and verifies their signatures.
+.DESCRIPTION
+    Reads the pinned versions from tools/tools.psd1. Every .ps1, .psm1 and .dll file in a tool, and its
+    module manifest, MUST carry a valid Authenticode signature, and the manifest MUST be signed by the
+    expected publisher. Any other result stops the script, so an unexpected package is never imported.
+.PARAMETER Path
+    Folder to save the tools in. Defaults to .tools at the repository root.
+.PARAMETER Name
+    Installs only these tools.
+#>
+[CmdletBinding()]
+param(
+    [string]$Path = (Join-Path $PSScriptRoot '../.tools'),
+
+    [string[]]$Name
+)
+
+$ErrorActionPreference = 'Stop'
+
+function Assert-ToolSignature {
+    param([string]$ToolName, [hashtable]$Tool, [string]$ModuleDir)
+
+    $manifest = Get-Item (Join-Path $ModuleDir "$ToolName.psd1")
+    $files = @(Get-ChildItem -Path $ModuleDir -Recurse -File -Include '*.ps1', '*.psm1', '*.dll') + $manifest
+    foreach ($file in $files) {
+        $signature = Get-AuthenticodeSignature -FilePath $file.FullName
+        if ($signature.Status -ne 'Valid') {
+            throw "$ToolName $($Tool.Version): '$($file.FullName)' has signature status '$($signature.Status)'."
+        }
+    }
+
+    $signer = (Get-AuthenticodeSignature -FilePath $manifest.FullName).SignerCertificate
+    if ($Tool.SignerThumbprint -and $signer.Thumbprint -ne $Tool.SignerThumbprint) {
+        throw "$ToolName $($Tool.Version) is signed by certificate $($signer.Thumbprint) ($($signer.Subject)), not the pinned $($Tool.SignerThumbprint)."
+    }
+    if ($Tool.SignerSubject -and $signer.Subject -notlike $Tool.SignerSubject) {
+        throw "$ToolName $($Tool.Version) is signed by '$($signer.Subject)', not '$($Tool.SignerSubject)'."
+    }
+}
+
+$tools = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'tools.psd1')
+New-Item -Path $Path -ItemType Directory -Force | Out-Null
+
+foreach ($toolName in @($tools.Keys | Sort-Object)) {
+    if ($Name -and $toolName -notin $Name) { continue }
+
+    $tool = $tools[$toolName]
+    $moduleDir = Join-Path $Path "$toolName/$($tool.Version)"
+    if (-not (Test-Path $moduleDir)) {
+        Save-Module -Name $toolName -RequiredVersion $tool.Version -Repository PSGallery -Path $Path
+    }
+
+    Assert-ToolSignature -ToolName $toolName -Tool $tool -ModuleDir $moduleDir
+    Write-Information "$toolName $($tool.Version): signature verified." -InformationAction Continue
+}

@@ -1,101 +1,106 @@
-# StoredCredential
-PowerShell module to read and write credentials in the Windows Credential Manager.
+# WinCred
+A modern, secure, auditable PowerShell interface to Windows Credential Manager.
 
-## Origin
-StoredCredential is a fork of [TUN.CredentialManager](https://github.com/echalone/PowerShell_Credential_Manager) by Markus Szumovski, which continued [CredentialManager](https://github.com/davotronic5000/PowerShell_Credential_Manager) by Dave Garnar. It keeps the cmdlet names of both and runs natively on Windows PowerShell 5.1 and PowerShell 7. See "Migrating from TUN.CredentialManager 3.x" for breaking changes.
+WinCred talks to the native Credential Manager API (`CredReadW`, `CredWriteW`, `CredDeleteW`, `CredEnumerateW`, `CredFree`) and nothing else. Windows owns the credential store and its format; WinCred adds no storage of its own. Other programs, in any language, can use the same credentials through the same API: **Credential Manager is the shared interface.**
+
+WinCred is intentionally small. It is not a secret-management framework, an encrypted-file library or a vault abstraction.
 
 ## Requirements
 
 * Windows
-* Windows PowerShell 5.1 with .NET Framework 4.6.2 or later, or PowerShell 7 or later
+* Windows PowerShell 5.1 with .NET Framework 4.6.2 or later, or PowerShell 7.4 or later
 
-The module ships two builds of StoredCredential.dll: `net462` for Windows PowerShell 5.1 and `netstandard2.0` for PowerShell 7. StoredCredential.psm1 loads the right one for the running edition. Neither build depends on PowerShell 7's compatibility layer for Windows PowerShell modules.
+The module ships two builds of WinCred.dll: `net462` for Windows PowerShell 5.1 and `net8.0` for PowerShell 7.4+. WinCred.psm1 loads the right one for the running edition. Neither build uses PowerShell 7's Windows PowerShell compatibility session. WinCred has no runtime dependencies.
 
 ## Installation
 
-1. Download StoredCredential.zip from the releases page of this repository.
-2. Unzip it and copy the StoredCredential folder to a folder in `$env:PSModulePath`, for example `C:\Users\UserName\Documents\WindowsPowerShell\Modules`.
-3. In your PowerShell session run the command `Import-Module StoredCredential`
-
-TUN.CredentialManager and StoredCredential export the same cmdlet names. You SHOULD NOT import both into one session.
+1. Download WinCred.zip from the releases page of this repository.
+2. Unzip it and copy the WinCred folder to a folder in `$env:PSModulePath`.
+3. Run `Import-Module WinCred`.
 
 ## Usage
 
-Import the module and use Get-Help for full help. The help source is in [docs/en-US](docs/en-US).
-
 ```powershell
-# Store a credential; PowerShell prompts for the password without echoing it
-Get-Credential -UserName svc-backup | New-StoredCredential -Target backup01 -Persist LocalMachine
+# Store a credential. The secret comes from a prompt, never from plain text on the command line.
+Get-Credential -UserName svc-backup | Set-WinCredential -Target backup01 -Persist LocalMachine
 
-# Read it back as a PSCredential
-$cred = Get-StoredCredential -Target backup01
+# Store a token without a user name; it lasts until logoff (the default)
+Set-WinCredential -Target api.example.com -Secret (Read-Host -AsSecureString -Prompt Token)
 
-# Remove it, previewing first
-Remove-StoredCredential -Target backup01 -WhatIf
-Remove-StoredCredential -Target backup01
+# List credentials: no secrets are read
+Get-WinCredential -Target 'backup*'
+
+# Use one as a PSCredential
+Invoke-Command -ComputerName backup01 -Credential (Get-WinCredential -Target backup01 -AsPSCredential) -ScriptBlock { hostname }
+
+# Preview, then delete
+Get-WinCredential -Target 'test.*' | Remove-WinCredential -WhatIf
+Remove-WinCredential -Target backup01
 ```
 
-### Migrating from TUN.CredentialManager 3.x
-* The module is named StoredCredential. Change `Import-Module TUN.CredentialManager` and `#Requires -Modules` lines. The GUID is new.
-* Requires Windows PowerShell 5.1 or PowerShell 7. Windows PowerShell 3.0 and 4.0 are no longer supported.
-* `Get-StoredCredential -AsCredentialObject` no longer fills `Password` and `PasswordSize`. Add `-IncludeClearPassword` to get them. `-ExcludeClearPassword` has no effect anymore, except that it overrides `-IncludeClearPassword`.
-* `New-StoredCredential` requires a password through `-SecurePassword` or `-Credentials`. It no longer stores a random password when you give none. In an interactive session it prompts for `-SecurePassword`.
-* `New-StoredCredential -Password` is removed. A plain-text password parameter puts the password in command history and transcripts. Use `-SecurePassword (Read-Host -AsSecureString)` or `-Credential (Get-Credential)`.
-* `New-StoredCredential` never returns the password. Its output matches `Get-StoredCredential -AsCredentialObject`.
-* `New-StoredCredential` and `Remove-StoredCredential` support `-WhatIf` and `-Confirm`.
-* The `PaswordSize` property of Credential objects is renamed to `PasswordSize`.
-* PSCredentialManager.Api.dll and PSCredentialManager.Common.dll are merged into StoredCredential.dll. Namespaces and type names are unchanged.
-* Errors have meaningful IDs (`ReadFailed`, `EnumerateFailed`, `WriteFailed`, `PasswordTooLong`, `CredentialNotFound`, `DeleteFailed`, `TooManySpecialCharacters`) instead of `1`. `Remove-StoredCredential` reports a missing credential with the `ObjectNotFound` category.
+Full help: `Get-Help Get-WinCredential -Full` and `Get-Help about_WinCred`. The help source is in [docs/en-US](docs/en-US) and [src/WinCred/en-US](src/WinCred/en-US).
 
-### New features
-* `-Encoding Unicode|UTF8` on `Get-StoredCredential` and `New-StoredCredential` reads and writes passwords that other programs store as UTF-8. The default, Unicode, is what Windows uses.
-* `-Credential` is an alias for `New-StoredCredential -Credentials`.
-* `Get-StoredCredential` returns credentials with an empty password as PSCredential objects instead of writing a warning.
+## Security defaults
 
-## Building
+* `Set-WinCredential` requires a secret as a SecureString or PSCredential. It fails without one; it never prompts and never generates one. There is no plain-text secret parameter.
+* New credentials persist for the logon session. Longer persistence MUST be requested with `-Persist`.
+* `Get-WinCredential` reads no secret unless you add `-IncludeSecret` or `-AsPSCredential`, and never returns plain text.
+* Secrets never appear in messages, errors or formatted output. Unmanaged copies are zeroed before they are freed, and every buffer from Windows is released with `CredFree`.
+* Invalid input fails before anything is written. Windows' limits are checked up front: target 32767 characters (Generic) or 337 (DomainPassword), user name 513, comment 256, secret 2560 bytes after encoding.
 
-You need the .NET SDK version from [global.json](global.json) and PowerShell 5.1 or 7.
+## Encoding
+
+Windows stores the secret as opaque bytes. WinCred uses Unicode (UTF-16LE) by default, which is what Windows and most programs use. Programs that share credentials with WinCred MUST agree on the encoding; use `-Encoding UTF8` for programs that store UTF-8.
+
+## Migrating from CredentialManager or TUN.CredentialManager
+
+| CredentialManager / TUN.CredentialManager | WinCred |
+|---|---|
+| `Import-Module TUN.CredentialManager` | `Import-Module WinCred` |
+| `Get-StoredCredential -Target x` (PSCredential) | `Get-WinCredential -Target x -AsPSCredential` |
+| `Get-StoredCredential -Target x -AsCredentialObject` | `Get-WinCredential -Target x` (no secret) or `-IncludeSecret` |
+| `.Password` (plain text) on credential objects | `[System.Net.NetworkCredential]::new('', $c.Secret).Password`, in your own code |
+| `Get-StoredCredential` (all) | `Get-WinCredential`; `-Target` accepts wildcards |
+| `New-StoredCredential -Target x -UserName u -Password p` | `Set-WinCredential -Target x -UserName u -Secret (Read-Host -AsSecureString)` |
+| `New-StoredCredential -Credentials $c` | `Set-WinCredential -Credential $c` or `$c \| Set-WinCredential -Target x` |
+| `New-StoredCredential` without a password (stored a random one) | Fails with `MissingSecret` |
+| `-Target` defaulted to the computer name | `-Target` is required |
+| `-UserName` defaulted to the current user; `-Comment` to "Updated by ..." | No defaults: omitted means not stored |
+| `New-StoredCredential` returned the credential | `Set-WinCredential` returns nothing; add `-PassThru` |
+| `Remove-StoredCredential -Target x` | `Remove-WinCredential -Target x`, or pipe from `Get-WinCredential` |
+| `Get-StrongPassword` | Removed: generating passwords is outside this module's scope |
+| `CredType` values `Maximum`, `MaximumEx` | Removed: they are not credential types |
+
+## Development
+
+You need the .NET SDK from [global.json](global.json), and Windows for the tests that touch the credential store.
 
 ```powershell
-# Unit tests for both builds. The net462 tests need Windows.
-dotnet test StoredCredential.slnx
+dotnet test WinCred.slnx                   # Native-layer unit tests (MSTest); net462 needs Windows
+./tools/Install-Tools.ps1                  # Pinned Pester, PSScriptAnalyzer and platyPS into .tools, signatures verified
+./tools/Invoke-ScriptAnalysis.ps1          # PSScriptAnalyzer with PSScriptAnalyzerSettings.psd1
+./build.ps1                                # Module with help into out/WinCred
 
-# Help is compiled from docs/en-US with Microsoft's platyPS module.
-Install-Module platyPS -RequiredVersion 0.14.2 -Scope CurrentUser
-./build.ps1          # Writes the module to out/StoredCredential
-
-# End-to-end tests against the real credential store. Run them in both editions.
-powershell -File ./tests/Smoke.ps1
-pwsh -File ./tests/Smoke.ps1
+# Pester tests in both editions. They only touch targets named WinCred.Test.<guid>.* and remove them again.
+powershell -NoProfile -NonInteractive -File ./tests/Invoke-Tests.ps1
+pwsh -NoProfile -NonInteractive -File ./tests/Invoke-Tests.ps1
+pwsh -File ./tests/Invoke-Tests.ps1 -ExcludeTag Store   # Without touching your credential store
 ```
 
-The version number MUST be changed in both `Directory.Build.props` and `src/StoredCredential/StoredCredential.psd1`. `build.ps1` fails when they differ.
+Tool versions are pinned in [tools/tools.psd1](tools/tools.psd1). The version number MUST be changed in both `Directory.Build.props` and `src/WinCred/WinCred.psd1`; `build.ps1` fails when they differ.
 
-GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs all of the above on every push and pull request. Pushing a tag that starts with `v` also creates a draft GitHub release with the module zip.
-
-## Contributing
-
-1. Fork it!
-2. Create your feature branch: `git checkout -b my-new-feature`
-3. Commit your changes: `git commit -am 'Add some feature'`
-4. Push to the branch: `git push origin my-new-feature`
-5. Submit a pull request :D
+GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the unit tests, PSScriptAnalyzer and the build, then the Pester tests in Windows PowerShell 5.1 and PowerShell 7.4, 7.5 and 7.6. A tag starting with `v` creates a draft release with WinCred.zip.
 
 ## History
 
-### v4.0 (StoredCredential)
-- Renamed to StoredCredential with a new GUID; maintained by Michael Kacer
-- Requires Windows PowerShell 5.1 or PowerShell 7; separate native builds for each edition
-- Breaking: clear-text password in Credential objects is opt-in with `-IncludeClearPassword`
-- Breaking: New-StoredCredential requires a password, has no plain-text -Password parameter, and never returns the password
-- Breaking: `PaswordSize` renamed to `PasswordSize`; helper assemblies merged into StoredCredential.dll; meaningful error IDs
-- New: `-Encoding` (Unicode or UTF8) on Get-StoredCredential and New-StoredCredential
-- New: `-WhatIf`/`-Confirm` on New-StoredCredential and Remove-StoredCredential; `-Credential` alias
-- Zeroes and frees the unmanaged copy of the password after writing a credential
-- Error records no longer contain the clear-text password
-- Fixed: a failed read no longer writes an empty object; enumerated Credential objects are separate pipeline objects; an empty store returns nothing instead of an error; `LastWritten` could be off by about 7 minutes
-- Get-StrongPassword uses only the cryptographic random number generator, without modulo bias
-- SDK-style projects, MSTest instead of Visual Studio Fakes, platyPS instead of XmlDoc2CmdletDoc, GitHub Actions instead of AppVeyor; no third-party dependencies
+### WinCred 1.0.0
+- New identity: module WinCred with cmdlets Get-, Set- and Remove-WinCredential, and a new GUID
+- A thin layer over the native CredMan API: SafeHandle-owned buffers, `CREDENTIAL_ATTRIBUTEW` attributes read into managed objects, Win32 error messages
+- Secure defaults: required secret, no plain-text input or output, Session persistence, no generated or implied values
+- `-Encoding` (Unicode or UTF8), `-WhatIf`/`-Confirm`, `-PassThru`, wildcard targets, pipeline from Get- to Remove-WinCredential
+- Size limits checked before writing; oversized secrets never reach Windows
+- Builds for net462 (Windows PowerShell 5.1) and net8.0 (PowerShell 7.4+); no runtime dependencies
+- Tests: MSTest for the native layer, Pester 6 against the real credential store in both editions; PSScriptAnalyzer; pinned, signature-checked tools
 
 ### TUN.CredentialManager history
 
@@ -145,7 +150,7 @@ http://blog.davotronic5000.co.uk
 Edited by Markus Szumovski (echalone)
 https://github.com/echalone
 
-Maintained as StoredCredential by Michael Kacer (mkacer)
+Maintained as WinCred by Michael Kacer (mkacer)
 https://github.com/mkacer
 
 ## License

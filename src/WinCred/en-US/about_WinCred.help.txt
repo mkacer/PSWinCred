@@ -1,0 +1,76 @@
+TOPIC
+    about_WinCred
+
+SHORT DESCRIPTION
+    WinCred is a thin, secure PowerShell interface to Windows Credential
+    Manager (CredMan).
+
+LONG DESCRIPTION
+    WinCred reads, writes and deletes the current user's credentials in
+    Windows Credential Manager through the native CredReadW, CredWriteW,
+    CredDeleteW, CredEnumerateW and CredFree functions. Windows owns the
+    store and its format; WinCred adds no storage of its own.
+
+    Other programs, in any language, can read and write the same credentials
+    through the same Windows API. Credential Manager is the shared interface.
+
+    The module has three cmdlets:
+
+        Get-WinCredential      Gets credentials; secrets only on request.
+        Set-WinCredential      Creates a credential or replaces one with the
+                               same target and type.
+        Remove-WinCredential   Deletes a credential.
+
+SECURITY DEFAULTS
+    WinCred fails closed and requires security-sensitive intent to be
+    explicit:
+
+    - Set-WinCredential requires a secret, as a SecureString or a
+      PSCredential. It never prompts for one and never generates one. There
+      is no plain-text secret parameter.
+    - New credentials persist for the logon session (Session). Use
+      -Persist LocalMachine or -Persist Enterprise to keep them longer.
+    - Get-WinCredential returns no secret unless you add -IncludeSecret or
+      -AsPSCredential, and never returns a secret as plain text. To get plain
+      text, convert explicitly in your own code:
+
+          [System.Net.NetworkCredential]::new('', $credential.Secret).Password
+
+    - Secrets never appear in verbose, debug, warning or error messages, or
+      in formatted output.
+    - Unmanaged copies of a secret are zeroed before they are freed, and every
+      buffer returned by Windows is released with CredFree.
+
+ENCODING
+    Windows stores a credential's secret as opaque bytes and does not record
+    their encoding. WinCred writes and reads Unicode (UTF-16LE) by default,
+    which is what Windows and most programs use. Use -Encoding UTF8 for
+    credentials that another program stores as UTF-8 bytes.
+
+    Programs that share credentials with WinCred MUST agree on the encoding.
+    With the wrong encoding, the secret comes back garbled; WinCred cannot
+    detect this.
+
+PERSISTENCE
+    Session        Until the user logs off. The default.
+    LocalMachine   On this computer, across logon sessions.
+    Enterprise     Roams with the user's profile, where roaming is set up.
+
+LIMITS
+    Windows enforces these limits. Set-WinCredential checks them before
+    writing, and fails without writing when one is exceeded:
+
+    Target          32767 characters (Generic), 337 (DomainPassword)
+    User name       513 characters
+    Comment         256 characters
+    Secret          2560 bytes after encoding: 1280 characters in Unicode
+
+    Windows returns the secret of DomainPassword and DomainCertificate
+    credentials only to the Local Security Authority, so WinCred can write
+    DomainPassword credentials but never read their secret.
+
+SEE ALSO
+    Get-WinCredential
+    Set-WinCredential
+    Remove-WinCredential
+    https://learn.microsoft.com/windows/win32/api/wincred/
