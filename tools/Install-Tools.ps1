@@ -38,6 +38,7 @@ if (-not (Get-Command Save-PSResource -ErrorAction SilentlyContinue)) {
 }
 
 $tools = Get-ToolManifest
+$failed = @()
 New-Item -Path $Path -ItemType Directory -Force | Out-Null
 
 foreach ($toolName in @($tools.Keys | Sort-Object)) {
@@ -50,6 +51,16 @@ foreach ($toolName in @($tools.Keys | Sort-Object)) {
         Save-PSResource -Name $toolName -Version "[$($tool.Version)]" -Repository PSGallery -TrustRepository -AuthenticodeCheck -Path $Path
     }
 
-    Assert-ToolSignature -Name $toolName -ToolsPath $Path
-    Write-Information "$toolName $($tool.Version): signatures verified." -InformationAction Continue
+    # Check every tool before failing, so one run reports every problem
+    try {
+        Assert-ToolSignature -Name $toolName -ToolsPath $Path
+        Write-Information "$toolName $($tool.Version): signatures verified." -InformationAction Continue
+    }
+    catch {
+        $failed += $_.Exception.Message
+    }
+}
+
+if ($failed.Count -gt 0) {
+    throw ($failed -join ([Environment]::NewLine * 2))
 }

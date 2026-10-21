@@ -7,7 +7,8 @@
     extension is in $NonCodeExtensions: help, documentation and package metadata that PowerShell does not run
     and that cannot carry an Authenticode signature. A tool is pinned in tools/tools.psd1 by either
     SignerThumbprint (every file is signed by exactly that certificate) or RootThumbprint (every signing
-    certificate chains to one of these roots, independent of the roots this computer trusts).
+    certificate chains to one of these roots, independent of the roots this computer trusts). FileRoots adds
+    roots for single named files only, so an exception for one file does not extend to the others.
 
     Import-Tool verifies a tool again each time it imports it, because any program running as the user can
     change .tools after installation. A change between the check and the import is not detected.
@@ -38,8 +39,12 @@ function Get-ToolDirectory {
     Join-Path $ToolsPath "$Name/$($tool.Version)"
 }
 
-function Get-RootThumbprint {
-    [OutputType([string])]
+function Get-RootCertificate {
+    <#
+    .SYNOPSIS
+        Returns the root of the certificate's chain, or $null when the chain does not reach a root.
+    #>
+    [OutputType([System.Security.Cryptography.X509Certificates.X509Certificate2])]
     param([Parameter(Mandatory)][System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate)
 
     # Only identifies the root. Get-AuthenticodeSignature has already checked trust, time and timestamp.
@@ -49,11 +54,10 @@ function Get-RootThumbprint {
         $chain.ChainPolicy.VerificationFlags = [System.Security.Cryptography.X509Certificates.X509VerificationFlags]::IgnoreNotTimeValid
         [void]$chain.Build($Certificate)
         $root = $chain.ChainElements[$chain.ChainElements.Count - 1].Certificate
-        # An incomplete chain ends below the root; report it so it cannot match a pin
         if ($root.Subject -ne $root.Issuer) {
-            return "incomplete chain ending at $($root.Thumbprint)"
+            return $null
         }
-        $root.Thumbprint
+        $root
     }
     finally {
         $chain.Dispose()
@@ -79,6 +83,9 @@ function Assert-ToolSignature {
     }
     $signerPin = $tool['SignerThumbprint']
     $rootPins = @($tool['RootThumbprint'] | Where-Object { $_ })
+    # Extra roots for single files, keyed by path relative to the module folder with forward slashes
+    $fileRoots = $tool['FileRoots']
+    if (-not $fileRoots) { $fileRoots = @{} }
     $moduleDir = Get-ToolDirectory -Name $Name -ToolsPath $ToolsPath
     if (-not (Test-Path (Join-Path $moduleDir "$Name.psd1"))) {
         throw "$Name $($tool.Version) is not installed in '$moduleDir'. Run tools/Install-Tools.ps1."
@@ -89,12 +96,17 @@ function Assert-ToolSignature {
     }
 
     $failures = [System.Collections.Generic.List[string]]::new()
+    foreach ($path in $fileRoots.Keys) {
+        if (-not (Test-Path -LiteralPath (Join-Path $moduleDir $path) -PathType Leaf)) {
+            $failures.Add("$path`: named in FileRoots but not in the package; remove the stale exception")
+        }
+    }
     $checked = 0
     foreach ($file in Get-ChildItem -Path $moduleDir -Recurse -File -Force) {
         if ($NonCodeExtensions -contains $file.Extension.ToLowerInvariant()) { continue }
         $checked++
 
-        $relative = $file.FullName.Substring($moduleDir.Length).TrimStart('\', '/')
+        $relative = $file.FullName.Substring($moduleDir.Length).TrimStart('\', '/').Replace('\', '/')
         $signature = Get-AuthenticodeSignature -FilePath $file.FullName
         if ($signature.Status -ne 'Valid') {
             $failures.Add("$relative`: signature status $($signature.Status)")
@@ -108,9 +120,13 @@ function Assert-ToolSignature {
             }
         }
         else {
-            $root = Get-RootThumbprint -Certificate $signer
-            if ($rootPins -notcontains $root) {
-                $failures.Add("$relative`: signed by '$($signer.Subject)' under root $root")
+            $allowed = $rootPins + @($fileRoots[$relative] | Where-Object { $_ })
+            $root = Get-RootCertificate -Certificate $signer
+            if (-not $root) {
+                $failures.Add("$relative`: signed by '$($signer.Subject)', whose chain does not reach a root")
+            }
+            elseif ($allowed -notcontains $root.Thumbprint) {
+                $failures.Add("$relative`: signed by '$($signer.Subject)' under root $($root.Thumbprint) ('$($root.Subject)')")
             }
         }
     }
