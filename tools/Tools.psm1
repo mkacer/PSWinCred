@@ -14,10 +14,13 @@
 #>
 
 Set-StrictMode -Version 3.0
+# Functions in a module do not see the caller's preference; every error here MUST stop verification
+$ErrorActionPreference = 'Stop'
 
-# Files with these extensions are not verified. Everything else is, including files without an extension
-# PowerShell cannot load, so an unexpected file fails closed.
-$NonCodeExtensions = @('.md', '.txt', '.xml', '.xsd', '.dtd', '.png', '.jpg', '.gif', '.ico', '.svg', '.nuspec', '.psmdcp', '.rels', '')
+# Files with these extensions are not verified: PowerShell does not run them and they cannot carry an
+# Authenticode signature. .p7s is the NuGet package signature that Save-PSResource keeps. Every other file is
+# verified, so an unexpected file fails closed.
+$NonCodeExtensions = @('.md', '.txt', '.xml', '.xsd', '.dtd', '.png', '.jpg', '.gif', '.ico', '.svg', '.nuspec', '.psmdcp', '.rels', '.p7s', '')
 
 function Get-ToolManifest {
     [OutputType([hashtable])]
@@ -69,13 +72,19 @@ function Assert-ToolSignature {
         throw 'Tool signatures can only be verified on Windows.'
     }
 
+    # Indexers, not dot notation: strict mode throws on a missing key read with a dot
     $tool = (Get-ToolManifest)[$Name]
+    if (-not $tool) {
+        throw "Tool '$Name' is not pinned in tools/tools.psd1."
+    }
+    $signerPin = $tool['SignerThumbprint']
+    $rootPins = @($tool['RootThumbprint'] | Where-Object { $_ })
     $moduleDir = Get-ToolDirectory -Name $Name -ToolsPath $ToolsPath
     if (-not (Test-Path (Join-Path $moduleDir "$Name.psd1"))) {
         throw "$Name $($tool.Version) is not installed in '$moduleDir'. Run tools/Install-Tools.ps1."
     }
     $moduleDir = (Resolve-Path -LiteralPath $moduleDir).ProviderPath
-    if ([bool]$tool.SignerThumbprint -eq [bool]$tool.RootThumbprint) {
+    if ([bool]$signerPin -eq ($rootPins.Count -gt 0)) {
         throw "tools/tools.psd1 MUST pin $Name by exactly one of SignerThumbprint and RootThumbprint."
     }
 
@@ -93,14 +102,14 @@ function Assert-ToolSignature {
         }
 
         $signer = $signature.SignerCertificate
-        if ($tool.SignerThumbprint) {
-            if ($signer.Thumbprint -ne $tool.SignerThumbprint) {
+        if ($signerPin) {
+            if ($signer.Thumbprint -ne $signerPin) {
                 $failures.Add("$relative`: signed by $($signer.Thumbprint) ($($signer.Subject))")
             }
         }
         else {
             $root = Get-RootThumbprint -Certificate $signer
-            if (@($tool.RootThumbprint) -notcontains $root) {
+            if ($rootPins -notcontains $root) {
                 $failures.Add("$relative`: signed by '$($signer.Subject)' under root $root")
             }
         }
