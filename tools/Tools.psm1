@@ -8,7 +8,8 @@
     and that cannot carry an Authenticode signature. A tool is pinned in tools/tools.psd1 by either
     SignerThumbprint (every file is signed by exactly that certificate) or RootThumbprint (every signing
     certificate chains to one of these roots, independent of the roots this computer trusts). FileRoots adds
-    roots for single named files only, so an exception for one file does not extend to the others.
+    roots for single named files only, and FileSigners pins single named files to exact certificates, so an
+    exception for one file does not extend to the others.
 
     Import-Tool verifies a tool again each time it imports it, because any program running as the user can
     change .tools after installation. A change between the check and the import is not detected.
@@ -19,9 +20,10 @@ Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
 
 # Files with these extensions are not verified: PowerShell does not run them and they cannot carry an
-# Authenticode signature. .p7s is the NuGet package signature that Save-PSResource keeps. Every other file is
-# verified, so an unexpected file fails closed.
-$NonCodeExtensions = @('.md', '.txt', '.xml', '.xsd', '.dtd', '.png', '.jpg', '.gif', '.ico', '.svg', '.nuspec', '.psmdcp', '.rels', '.p7s', '')
+# Authenticode signature. .p7s is the NuGet package signature that Save-PSResource keeps; .json holds data,
+# such as PSScriptAnalyzer's settings and compatibility profiles. Every other file is verified, so an
+# unexpected file fails closed.
+$NonCodeExtensions = @('.md', '.txt', '.xml', '.xsd', '.dtd', '.json', '.png', '.jpg', '.gif', '.ico', '.svg', '.nuspec', '.psmdcp', '.rels', '.p7s', '')
 
 function Get-ToolManifest {
     [OutputType([hashtable])]
@@ -86,6 +88,9 @@ function Assert-ToolSignature {
     # Extra roots for single files, keyed by path relative to the module folder with forward slashes
     $fileRoots = $tool['FileRoots']
     if (-not $fileRoots) { $fileRoots = @{} }
+    # Signer pins for single files, which replace the root check for that file
+    $fileSigners = $tool['FileSigners']
+    if (-not $fileSigners) { $fileSigners = @{} }
     $moduleDir = Get-ToolDirectory -Name $Name -ToolsPath $ToolsPath
     if (-not (Test-Path (Join-Path $moduleDir "$Name.psd1"))) {
         throw "$Name $($tool.Version) is not installed in '$moduleDir'. Run tools/Install-Tools.ps1."
@@ -96,9 +101,11 @@ function Assert-ToolSignature {
     }
 
     $failures = [System.Collections.Generic.List[string]]::new()
-    foreach ($path in $fileRoots.Keys) {
-        if (-not (Test-Path -LiteralPath (Join-Path $moduleDir $path) -PathType Leaf)) {
-            $failures.Add("$path`: named in FileRoots but not in the package; remove the stale exception")
+    foreach ($exceptions in @(@{ Key = 'FileRoots'; Paths = $fileRoots.Keys }, @{ Key = 'FileSigners'; Paths = $fileSigners.Keys })) {
+        foreach ($path in $exceptions.Paths) {
+            if (-not (Test-Path -LiteralPath (Join-Path $moduleDir $path) -PathType Leaf)) {
+                $failures.Add("$path`: named in $($exceptions.Key) but not in the package; remove the stale exception")
+            }
         }
     }
     $checked = 0
@@ -114,9 +121,10 @@ function Assert-ToolSignature {
         }
 
         $signer = $signature.SignerCertificate
-        if ($signerPin) {
-            if ($signer.Thumbprint -ne $signerPin) {
-                $failures.Add("$relative`: signed by $($signer.Thumbprint) ($($signer.Subject))")
+        $signerAllowed = if ($fileSigners.ContainsKey($relative)) { @($fileSigners[$relative]) } elseif ($signerPin) { @($signerPin) } else { $null }
+        if ($signerAllowed) {
+            if ($signerAllowed -notcontains $signer.Thumbprint) {
+                $failures.Add("$relative`: signed by $($signer.Thumbprint) ('$($signer.Subject)')")
             }
         }
         else {
@@ -126,7 +134,7 @@ function Assert-ToolSignature {
                 $failures.Add("$relative`: signed by '$($signer.Subject)', whose chain does not reach a root")
             }
             elseif ($allowed -notcontains $root.Thumbprint) {
-                $failures.Add("$relative`: signed by '$($signer.Subject)' under root $($root.Thumbprint) ('$($root.Subject)')")
+                $failures.Add("$relative`: signed by $($signer.Thumbprint) ('$($signer.Subject)') under root $($root.Thumbprint) ('$($root.Subject)')")
             }
         }
     }

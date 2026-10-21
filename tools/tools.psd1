@@ -5,6 +5,7 @@
 # SignerThumbprint: every file MUST be signed by exactly this certificate.
 # RootThumbprint:   every file MUST be signed by a certificate that chains to one of these roots.
 # FileRoots:        extra roots for single files, by path relative to the module folder.
+# FileSigners:      exact signing certificates for single files, in place of the root check.
 @{
     # Thumbprint from the Pester README's signing-certificate table for 6.0.0-alpha4 and later
     'Pester'                       = @{ Version = '6.2.0'; SignerThumbprint = '147C2FD397677DC76DD198E83E7D9D234AA59D1A' }

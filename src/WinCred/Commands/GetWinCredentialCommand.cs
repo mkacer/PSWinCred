@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Management.Automation;
+using WinCred.Native;
 
 namespace WinCred.Commands
 {
@@ -89,12 +90,24 @@ namespace WinCred.Commands
         {
             bool found = false;
             bool failed = false;
-            foreach (CredType type in types ?? (IEnumerable<CredType>)CredMan.AllTypes)
+            Win32Exception? rejected = null;
+            int rejectedCount = 0;
+            CredType[] candidates = types?.ToArray() ?? CredMan.AllTypes;
+            foreach (CredType type in candidates)
             {
                 ReadResult? result;
                 try
                 {
                     result = credMan.Read(target, type, IncludeSecretValues, Encoding);
+                }
+                catch (Win32Exception exception) when (types == null && exception.NativeErrorCode == NativeMethods.ERROR_INVALID_PARAMETER)
+                {
+                    // Observed on Windows: CredReadW returns ERROR_INVALID_PARAMETER for some types when it gets a
+                    // name that Generic accepts. Windows rejects the name for that type, so no credential of that
+                    // type can have it. Without -Type, skip that type; with -Type, report the error.
+                    rejected = exception;
+                    rejectedCount++;
+                    continue;
                 }
                 catch (Win32Exception exception)
                 {
@@ -112,7 +125,15 @@ namespace WinCred.Commands
 
             if (!found && !failed)
             {
-                WriteError(Errors.NotFound(target, types?.Count == 1 ? types.Single() : (CredType?)null));
+                if (rejected != null && rejectedCount == candidates.Length)
+                {
+                    // No type accepted the name, so report Windows' answer instead of hiding it
+                    WriteError(Errors.Native(rejected, "ReadFailed", ErrorCategory.ReadError, target));
+                }
+                else
+                {
+                    WriteError(Errors.NotFound(target, types?.Count == 1 ? types.Single() : (CredType?)null));
+                }
             }
         }
 

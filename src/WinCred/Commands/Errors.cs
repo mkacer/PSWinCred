@@ -36,6 +36,11 @@ namespace WinCred.Commands
                 record.ErrorDetails = new ErrorDetails(
                     $"{exception.Message} This logon session has no credential store, which happens in network logons such as PowerShell remoting and in scheduled tasks that do not load the user profile.");
             }
+            else if (exception.NativeErrorCode == ERROR_INVALID_PARAMETER && errorId == "ReadFailed")
+            {
+                record.ErrorDetails = new ErrorDetails(
+                    $"Windows rejected the target name '{target}' for the requested credential type: {exception.Message}");
+            }
             else if (exception.NativeErrorCode == ERROR_INVALID_PARAMETER && errorId == "WriteFailed")
             {
                 record.ErrorDetails = new ErrorDetails(
