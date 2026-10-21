@@ -48,7 +48,7 @@ Full help: `Get-Help Get-WinCredential -Full` and `Get-Help about_WinCred`. The 
 * New credentials persist for the logon session. Longer persistence MUST be requested with `-Persist`.
 * `Get-WinCredential` reads no secret unless you add `-IncludeSecret` or `-AsPSCredential`, and never returns plain text.
 * Secrets never appear in messages, errors or formatted output. Unmanaged copies are zeroed before they are freed, and every buffer from Windows is released with `CredFree`.
-* Invalid input fails before anything is written. Windows' limits are checked up front: target 32767 characters (Generic) or 337 (DomainPassword), user name 513, comment 256, secret 2560 bytes after encoding.
+* Invalid input fails before anything is written. Windows' limits are checked up front: target 32766 characters (Generic) or 337 (DomainPassword), user name 513, comment 256, secret 2560 bytes after encoding.
 
 ## Encoding
 

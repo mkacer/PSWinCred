@@ -15,6 +15,10 @@ namespace WinCred.Native
         internal const int CRED_MAX_STRING_LENGTH = 256;
         internal const int CRED_MAX_USERNAME_LENGTH = 256 + 1 + 256;
         internal const int CRED_MAX_GENERIC_TARGET_NAME_LENGTH = 32767;
+
+        // Measured on Windows: CredWriteW accepts at most 32766 characters for a generic target and fails
+        // with RPC_S_INVALID_BOUND (1734) at 32767; the constant above appears to count the terminating null.
+        internal const int MaxGenericTargetLength = CRED_MAX_GENERIC_TARGET_NAME_LENGTH - 1;
         internal const int CRED_MAX_DOMAIN_TARGET_NAME_LENGTH = 256 + 1 + 80;
         internal const int CRED_MAX_CREDENTIAL_BLOB_SIZE = 5 * 512;
 

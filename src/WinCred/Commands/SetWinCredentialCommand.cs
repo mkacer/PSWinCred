@@ -113,7 +113,7 @@ namespace WinCred.Commands
                     "MissingSecret", Target));
             }
 
-            int maxTarget = Type == CredType.Generic ? CRED_MAX_GENERIC_TARGET_NAME_LENGTH : CRED_MAX_DOMAIN_TARGET_NAME_LENGTH;
+            int maxTarget = Type == CredType.Generic ? MaxGenericTargetLength : CRED_MAX_DOMAIN_TARGET_NAME_LENGTH;
             if (Target.Length > maxTarget)
             {
                 ThrowTerminatingError(Errors.InvalidArgument(nameof(Target),

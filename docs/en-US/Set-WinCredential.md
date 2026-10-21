@@ -220,7 +220,7 @@ HelpMessage: ''
 
 ### -Target
 
-The target name of the credential. At most 32767 characters for Generic and 337 for DomainPassword credentials. Wildcard characters have no special meaning.
+The target name of the credential. At most 32766 characters for Generic and 337 for DomainPassword credentials. Wildcard characters have no special meaning.
 
 ```yaml
 Type: System.String

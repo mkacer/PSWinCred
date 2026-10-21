@@ -60,7 +60,7 @@ LIMITS
     Windows enforces these limits. Set-WinCredential checks them before
     writing, and fails without writing when one is exceeded:
 
-    Target          32767 characters (Generic), 337 (DomainPassword)
+    Target          32766 characters (Generic), 337 (DomainPassword)
     User name       513 characters
     Comment         256 characters
     Secret          2560 bytes after encoding: 1280 characters in Unicode
