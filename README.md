@@ -93,6 +93,24 @@ Tool versions are pinned in [tools/tools.psd1](tools/tools.psd1). `Install-Tools
 
 GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the unit tests, PSScriptAnalyzer and the build, then the Pester tests in Windows PowerShell 5.1 and PowerShell 7.4 and 7.6. A tag starting with `v` creates a draft release with WinCred.zip. [CodeQL](.github/workflows/codeql.yml) analyzes the C# code and the workflows on every push, pull request and weekly. [Dependabot](.github/dependabot.yml) proposes updates to the pinned Actions and NuGet packages after they are 14 days old.
 
+### Telemetry
+
+WinCred itself collects and sends nothing. Some of the development tools send usage telemetry to Microsoft by default:
+
+| Tool | Opt-out environment variable |
+|---|---|
+| .NET CLI (`dotnet build`, `dotnet test`) | `DOTNET_CLI_TELEMETRY_OPTOUT=1` |
+| Microsoft.Testing.Platform, the runner behind the native tests | `TESTINGPLATFORM_TELEMETRY_OPTOUT=1` |
+| PowerShell 7 (`pwsh`), when it starts | `POWERSHELL_TELEMETRY_OPTOUT=1` |
+
+CI sets all three. To opt out on your machine, set them for your user account and then open a new terminal, because each tool reads them when it starts:
+
+```powershell
+foreach ($name in 'DOTNET_CLI_TELEMETRY_OPTOUT', 'TESTINGPLATFORM_TELEMETRY_OPTOUT', 'POWERSHELL_TELEMETRY_OPTOUT') {
+    [Environment]::SetEnvironmentVariable($name, '1', 'User')
+}
+```
+
 ## History
 
 ### WinCred 1.0.0

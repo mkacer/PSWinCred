@@ -11,8 +11,9 @@ permissions:
   contents: read
 
 env:
-  # No usage telemetry from the .NET CLI or Microsoft.Testing.Platform
+  # No usage telemetry from the .NET CLI, PowerShell 7 or Microsoft.Testing.Platform
   DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  POWERSHELL_TELEMETRY_OPTOUT: '1'
   TESTINGPLATFORM_TELEMETRY_OPTOUT: '1'
 
 jobs:
