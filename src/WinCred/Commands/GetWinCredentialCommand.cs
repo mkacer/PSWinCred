@@ -10,7 +10,10 @@ namespace WinCred.Commands
     /// <summary>
     /// Gets credentials from Windows Credential Manager. Secrets and attribute values are included only on request.
     /// </summary>
-    [Cmdlet(VerbsCommon.Get, "WinCredential", DefaultParameterSetName = Pattern)]
+    // No default parameter set on purpose. With one, the binder converts a piped credential object to a string for
+    // the default set's wildcard -Target before it tries -LiteralTarget by property name, so 'lit[1]' matched 'lit1'.
+    // Without one, it binds by property name first. Calls without -LiteralTarget still resolve to the Target sets.
+    [Cmdlet(VerbsCommon.Get, "WinCredential")]
     [OutputType(typeof(WinCredential), ParameterSetName = new[] { Pattern, Literal })]
     [OutputType(typeof(PSCredential), ParameterSetName = new[] { PatternAsPSCredential, LiteralAsPSCredential })]
     public sealed class GetWinCredentialCommand : PSCmdlet

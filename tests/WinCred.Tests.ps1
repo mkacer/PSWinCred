@@ -121,6 +121,8 @@ Describe 'Module surface' {
         @($get.Parameters['Target'].Attributes | Where-Object { $_ -is [Parameter] -and $_.ValueFromPipelineByPropertyName }).Count | Should-Be 0
         @($get.Parameters['LiteralTarget'].Attributes | Where-Object { $_ -is [Parameter] -and $_.ValueFromPipelineByPropertyName }).Count | Should-BeGreaterThan 0
         $get.Parameters['LiteralTarget'].Aliases | Should-Be 'TargetName'
+        # A default parameter set makes the binder convert piped objects to strings for -Target first
+        $get.DefaultParameterSet | Should-BeFalsy
     }
 
     It 'loads cmdlet help' -Tag 'Help' {
@@ -448,6 +450,18 @@ Describe 'Credential store' -Tag 'Store' {
             $found = @(Get-WinCredential -LiteralTarget $bracketTarget | Get-WinCredential)
             Should-BeCollection -Actual $found -Count 1
             $found[0].TargetName | Should-Be $bracketTarget
+        }
+
+        It 'reads a piped object with a TargetName property as a literal name' {
+            # As a wildcard, the name would match nothing and write no error
+            $missing = [pscustomobject]@{ TargetName = (Get-TestTarget 'missing[1]') }
+            { $missing | Get-WinCredential } | Should-Throw -FullyQualifiedErrorId 'CredentialNotFound,*'
+        }
+
+        It 'reads piped strings as wildcards' {
+            $found = @((Get-TestTarget 'lit[1]') | Get-WinCredential)
+            Should-BeCollection -Actual $found -Count 1
+            $found[0].TargetName | Should-Be (Get-TestTarget 'lit1')
         }
 
         It 'finds a DomainPassword credential by exact name without -Type' {

@@ -15,7 +15,7 @@ Gets credentials from Windows Credential Manager.
 
 ## SYNTAX
 
-### Target (Default)
+### Target
 
 ```
 Get-WinCredential [[-Target] <String[]>] [-Type <CredType[]>] [-IncludeSecret]
