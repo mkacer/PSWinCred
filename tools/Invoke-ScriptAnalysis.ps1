@@ -7,10 +7,14 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$ToolsPath = (Join-Path $PSScriptRoot '../.tools')
+    [string]$ToolsPath
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Defaults are set here, not in param(): Windows PowerShell 5.1 leaves $PSScriptRoot empty
+# while it evaluates parameter defaults of a script run with -File.
+if (-not $ToolsPath) { $ToolsPath = Join-Path $PSScriptRoot '../.tools' }
 
 $root = Split-Path -Parent $PSScriptRoot
 $version = (Import-PowerShellDataFile (Join-Path $PSScriptRoot 'tools.psd1')).PSScriptAnalyzer.Version

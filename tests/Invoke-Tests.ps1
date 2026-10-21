@@ -11,16 +11,22 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$ModulePath = (Join-Path $PSScriptRoot '../out/WinCred/WinCred.psd1'),
+    [string]$ModulePath,
 
-    [string]$ToolsPath = (Join-Path $PSScriptRoot '../.tools'),
+    [string]$ToolsPath,
 
-    [string]$ResultPath = (Join-Path $PSScriptRoot '../out/TestResults'),
+    [string]$ResultPath,
 
     [string[]]$ExcludeTag
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Defaults are set here, not in param(): Windows PowerShell 5.1 leaves $PSScriptRoot empty
+# while it evaluates parameter defaults of a script run with -File.
+if (-not $ModulePath) { $ModulePath = Join-Path $PSScriptRoot '../out/WinCred/WinCred.psd1' }
+if (-not $ToolsPath) { $ToolsPath = Join-Path $PSScriptRoot '../.tools' }
+if (-not $ResultPath) { $ResultPath = Join-Path $PSScriptRoot '../out/TestResults' }
 
 $pesterVersion = (Import-PowerShellDataFile (Join-Path $PSScriptRoot '../tools/tools.psd1')).Pester.Version
 Import-Module (Join-Path $ToolsPath "Pester/$pesterVersion/Pester.psd1") -Force

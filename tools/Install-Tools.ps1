@@ -17,12 +17,16 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Path = (Join-Path $PSScriptRoot '../.tools'),
+    [string]$Path,
 
     [string[]]$Name
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Defaults are set here, not in param(): Windows PowerShell 5.1 leaves $PSScriptRoot empty
+# while it evaluates parameter defaults of a script run with -File.
+if (-not $Path) { $Path = Join-Path $PSScriptRoot '../.tools' }
 
 function Assert-ToolSignature {
     param([string]$ToolName, [hashtable]$Tool, [string]$ModuleDir)

@@ -14,12 +14,16 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
 
-    [string]$ToolsPath = (Join-Path $PSScriptRoot '.tools'),
+    [string]$ToolsPath,
 
     [switch]$SkipHelp
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Defaults are set here, not in param(): Windows PowerShell 5.1 leaves $PSScriptRoot empty
+# while it evaluates parameter defaults of a script run with -File.
+if (-not $ToolsPath) { $ToolsPath = Join-Path $PSScriptRoot '.tools' }
 
 $moduleName = 'WinCred'
 $projectDir = Join-Path $PSScriptRoot "src/$moduleName"
