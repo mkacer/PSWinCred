@@ -351,7 +351,14 @@ namespace PSCredentialManager.Cmdlet
             finally
             {
                 //Zero the unmanaged password copy and free all unmanaged strings
-                Marshal.ZeroFreeCoTaskMemUnicode(nativeCredential.CredentialBlob);
+                if (nativeCredential.CredentialBlob != IntPtr.Zero)
+                {
+                    for (int offset = 0; offset < nativeCredential.CredentialBlobSize; offset++)
+                    {
+                        Marshal.WriteByte(nativeCredential.CredentialBlob, offset, 0);
+                    }
+                    Marshal.FreeCoTaskMem(nativeCredential.CredentialBlob);
+                }
                 Marshal.FreeCoTaskMem(nativeCredential.TargetName);
                 Marshal.FreeCoTaskMem(nativeCredential.UserName);
                 Marshal.FreeCoTaskMem(nativeCredential.Comment);
