@@ -197,6 +197,13 @@ Describe 'Credential store' -Tag 'Store' {
             Get-WinCredential -Target $target -IncludeSecret | Format-List * | Out-String | Should-NotMatchString 'P@ss word 1'
         }
 
+        It 'lists the credential under its own target name' {
+            # Guards against "LegacyGeneric:target=..." names from CRED_ENUMERATE_ALL_CREDENTIALS
+            $listed = @(Get-WinCredential -Target "$prefix.ma*")
+            Should-BeCollection -Actual $listed -Count 1
+            $listed[0].TargetName | Should-Be $target
+        }
+
         It 'finds the target case-insensitively' {
             (Get-WinCredential -Target $target.ToUpperInvariant()).TargetName | Should-Be $target
         }
@@ -251,6 +258,7 @@ Describe 'Credential store' -Tag 'Store' {
         It 'removes the credentials piped from Get-WinCredential' {
             Set-WinCredential -Target (Get-TestTarget 'bulk.1') -Secret $secret
             Set-WinCredential -Target (Get-TestTarget 'bulk.2') -Secret $secret
+            Should-BeCollection -Actual @(Get-WinCredential -Target (Get-TestTarget 'bulk.*')) -Count 2
             Get-WinCredential -Target (Get-TestTarget 'bulk.*') | Remove-WinCredential
             Should-BeCollection -Actual @(Get-WinCredential -Target (Get-TestTarget 'bulk.*')) -Count 0
         }
@@ -262,6 +270,8 @@ Describe 'Credential store' -Tag 'Store' {
         }
 
         It 'returns nothing and no error for a wildcard without matches' {
+            # The prefix exists, so an empty result means the wildcard matched nothing, not that listing failed
+            @(Get-WinCredential -Target "$prefix*").Count | Should-BeGreaterThan 0
             $found = @(Get-WinCredential -Target (Get-TestTarget 'missing*') -ErrorVariable errors)
             Should-BeCollection -Actual $found -Count 0
             Should-BeCollection -Actual @($errors) -Count 0

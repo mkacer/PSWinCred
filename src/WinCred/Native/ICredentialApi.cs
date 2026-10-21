@@ -35,7 +35,9 @@ namespace WinCred.Native
 
         public int Enumerate(out int count, out CredentialHandle credentials)
         {
-            bool ok = NativeMethods.CredEnumerate(null, NativeMethods.CRED_ENUMERATE_ALL_CREDENTIALS, out uint nativeCount, out credentials);
+            // A null filter with no flags returns every credential under its own target name.
+            // CRED_ENUMERATE_ALL_CREDENTIALS would return "namespace:attribute=target" names instead.
+            bool ok = NativeMethods.CredEnumerate(null, 0, out uint nativeCount, out credentials);
             int error = ok ? 0 : Marshal.GetLastWin32Error();
             count = (int)nativeCount;
             return error;

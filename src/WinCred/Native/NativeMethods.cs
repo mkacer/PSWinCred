@@ -12,8 +12,6 @@ namespace WinCred.Native
 
         internal const int ERROR_NOT_FOUND = 1168;
 
-        internal const uint CRED_ENUMERATE_ALL_CREDENTIALS = 0x1;
-
         internal const int CRED_MAX_STRING_LENGTH = 256;
         internal const int CRED_MAX_USERNAME_LENGTH = 256 + 1 + 256;
         internal const int CRED_MAX_GENERIC_TARGET_NAME_LENGTH = 32767;
