@@ -60,9 +60,14 @@ LIMITS
     Windows enforces these limits. Set-WinCredential checks them before
     writing, and fails without writing when one is exceeded:
 
-    Target          32766 characters (Generic), 337 (DomainPassword)
-    User name       513 characters
-    Comment         256 characters
+    Target          32766 characters (Generic)
+                    253 characters, 63 per dot-separated label (DomainPassword;
+                    the target is a host name, such as server.example.com)
+    User name       512 characters
+    Comment         255 characters
+
+    These are the limits Windows enforces. They are one less than the
+    wincred.h constants, which count the terminating null character.
     Secret          2560 bytes after encoding: 1280 characters in Unicode
 
     Windows returns the secret of DomainPassword and DomainCertificate

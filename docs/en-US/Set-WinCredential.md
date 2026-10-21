@@ -67,7 +67,7 @@ PS C:\> Set-WinCredential -Target myapp -UserName app -Secret (Read-Host -AsSecu
 
 ### -Comment
 
-A comment stored with the credential. At most 256 characters.
+A comment stored with the credential. At most 255 characters.
 
 ```yaml
 Type: System.String
@@ -220,7 +220,7 @@ HelpMessage: ''
 
 ### -Target
 
-The target name of the credential. At most 32766 characters for Generic and 337 for DomainPassword credentials. Wildcard characters have no special meaning.
+The target name of the credential. At most 32766 characters for Generic credentials. DomainPassword targets are host names, such as server.example.com or *.example.com: at most 253 characters, with dot-separated labels of at most 63. Wildcard characters have no special meaning.
 
 ```yaml
 Type: System.String
@@ -264,7 +264,7 @@ HelpMessage: ''
 
 ### -UserName
 
-The user name of the credential. At most 513 characters. Without it, the credential has no user name.
+The user name of the credential. At most 512 characters. Without it, the credential has no user name.
 
 ```yaml
 Type: System.String

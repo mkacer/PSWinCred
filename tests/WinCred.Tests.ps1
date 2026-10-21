@@ -51,6 +51,15 @@ BeforeAll {
         $secret
     }
 
+    # A host name of exactly $Length characters under this run's prefix, with labels of at most 63
+    function Get-DomainTestTarget([int]$Length) {
+        $name = Get-TestTarget 'domain'
+        while ($Length - $name.Length -gt 64) { $name += '.' + ('a' * 63) }
+        $rest = $Length - $name.Length
+        if ($rest -ge 2) { $name += '.' + ('a' * ($rest - 1)) }
+        $name
+    }
+
     function ConvertTo-PlainText([securestring]$Secret) {
         [System.Net.NetworkCredential]::new('', $Secret).Password
     }
@@ -125,18 +134,28 @@ Describe 'Set-WinCredential input validation' {
         { Set-WinCredential -Target ('t' * 32767) -Secret (ConvertTo-TestSecret 'x') } | Should-Throw -FullyQualifiedErrorId 'TargetTooLong,*'
     }
 
-    It 'rejects a domain target over 337 characters' {
-        { Set-WinCredential -Target ('t' * 338) -Secret (ConvertTo-TestSecret 'x') -Type DomainPassword -UserName 'd\u' } |
+    It 'rejects a domain target over 253 characters' {
+        { Set-WinCredential -Target (Get-DomainTestTarget 254) -Secret (ConvertTo-TestSecret 'x') -Type DomainPassword -UserName 'd\u' } |
             Should-Throw -FullyQualifiedErrorId 'TargetTooLong,*'
     }
 
-    It 'rejects a user name over 513 characters' {
-        { Set-WinCredential -Target (Get-TestTarget 'longuser') -Secret (ConvertTo-TestSecret 'x') -UserName ('u' * 514) } |
+    It 'rejects a domain target label over 63 characters' {
+        { Set-WinCredential -Target (Get-TestTarget ('a' * 64)) -Secret (ConvertTo-TestSecret 'x') -Type DomainPassword -UserName 'd\u' } |
+            Should-Throw -FullyQualifiedErrorId 'TargetLabelTooLong,*'
+    }
+
+    It 'allows long labels in generic targets' {
+        # Only domain targets are host names; this fails later, on the missing secret, not on the label
+        { Set-WinCredential -Target (Get-TestTarget ('a' * 64)) } | Should-Throw -FullyQualifiedErrorId 'MissingSecret,*'
+    }
+
+    It 'rejects a user name over 512 characters' {
+        { Set-WinCredential -Target (Get-TestTarget 'longuser') -Secret (ConvertTo-TestSecret 'x') -UserName ('u' * 513) } |
             Should-Throw -FullyQualifiedErrorId 'UserNameTooLong,*'
     }
 
-    It 'rejects a comment over 256 characters' {
-        { Set-WinCredential -Target (Get-TestTarget 'longcomment') -Secret (ConvertTo-TestSecret 'x') -Comment ('c' * 257) } |
+    It 'rejects a comment over 255 characters' {
+        { Set-WinCredential -Target (Get-TestTarget 'longcomment') -Secret (ConvertTo-TestSecret 'x') -Comment ('c' * 256) } |
             Should-Throw -FullyQualifiedErrorId 'CommentTooLong,*'
     }
 
@@ -360,21 +379,26 @@ Describe 'Credential store' -Tag 'Store' {
             (Get-WinCredential -Target $target).TargetName.Length | Should-Be 32766
         }
 
-        It 'stores a domain target of 337 characters' {
-            $target = (Get-TestTarget 'longdomain.').PadRight(337, 't')
+        It 'stores a domain target of 253 characters' {
+            $target = Get-DomainTestTarget 253
             Set-WinCredential -Target $target -Type DomainPassword -UserName "$env:COMPUTERNAME\wincred-test" -Secret $secret
-            (Get-WinCredential -Target $target -Type DomainPassword).TargetName.Length | Should-Be 337
+            (Get-WinCredential -Target $target -Type DomainPassword).TargetName.Length | Should-Be 253
         }
 
-        It 'stores a user name of 513 characters' {
-            $userName = 'u' * 513
-            Set-WinCredential -Target (Get-TestTarget 'longuser') -UserName $userName -Secret $secret
-            (Get-WinCredential -Target (Get-TestTarget 'longuser')).UserName.Length | Should-Be 513
+        It 'stores a domain target label of 63 characters' {
+            $target = Get-TestTarget ('a' * 63)
+            Set-WinCredential -Target $target -Type DomainPassword -UserName "$env:COMPUTERNAME\wincred-test" -Secret $secret
+            (Get-WinCredential -Target $target -Type DomainPassword).TargetName | Should-Be $target
         }
 
-        It 'stores a comment of 256 characters' {
-            Set-WinCredential -Target (Get-TestTarget 'longcomment') -Comment ('c' * 256) -Secret $secret
-            (Get-WinCredential -Target (Get-TestTarget 'longcomment')).Comment.Length | Should-Be 256
+        It 'stores a user name of 512 characters' {
+            Set-WinCredential -Target (Get-TestTarget 'longuser') -UserName ('u' * 512) -Secret $secret
+            (Get-WinCredential -Target (Get-TestTarget 'longuser')).UserName.Length | Should-Be 512
+        }
+
+        It 'stores a comment of 255 characters' {
+            Set-WinCredential -Target (Get-TestTarget 'longcomment') -Comment ('c' * 255) -Secret $secret
+            (Get-WinCredential -Target (Get-TestTarget 'longcomment')).Comment.Length | Should-Be 255
         }
     }
 

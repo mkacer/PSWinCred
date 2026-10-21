@@ -74,6 +74,11 @@ namespace WinCred.Commands
             catch (Win32Exception exception)
             {
                 error = Errors.Native(exception, "WriteFailed", ErrorCategory.WriteError, Target);
+                if (exception.NativeErrorCode == ERROR_INVALID_PARAMETER && Type != CredType.Generic)
+                {
+                    error.ErrorDetails = new ErrorDetails(
+                        $"Windows rejected '{Target}' as a {Type} target: {exception.Message} {Type} targets must be host names, such as server.example.com or *.example.com.");
+                }
             }
 
             if (error != null)
@@ -113,7 +118,7 @@ namespace WinCred.Commands
                     "MissingSecret", Target));
             }
 
-            int maxTarget = Type == CredType.Generic ? MaxGenericTargetLength : CRED_MAX_DOMAIN_TARGET_NAME_LENGTH;
+            int maxTarget = Type == CredType.Generic ? MaxGenericTargetLength : MaxDomainTargetLength;
             if (Target.Length > maxTarget)
             {
                 ThrowTerminatingError(Errors.InvalidArgument(nameof(Target),
@@ -121,17 +126,30 @@ namespace WinCred.Commands
                     "TargetTooLong", Target));
             }
 
-            if (userName != null && userName.Length > CRED_MAX_USERNAME_LENGTH)
+            if (Type != CredType.Generic)
+            {
+                foreach (string label in Target.Split('.'))
+                {
+                    if (label.Length > MaxDomainTargetLabelLength)
+                    {
+                        ThrowTerminatingError(Errors.InvalidArgument(nameof(Target),
+                            $"The target has a {label.Length}-character label; {Type} targets are host names, whose dot-separated labels allow at most {MaxDomainTargetLabelLength}.",
+                            "TargetLabelTooLong", Target));
+                    }
+                }
+            }
+
+            if (userName != null && userName.Length > MaxUserNameLength)
             {
                 ThrowTerminatingError(Errors.InvalidArgument(nameof(UserName),
-                    $"The user name is {userName.Length} characters; at most {CRED_MAX_USERNAME_LENGTH} are allowed.",
+                    $"The user name is {userName.Length} characters; at most {MaxUserNameLength} are allowed.",
                     "UserNameTooLong", Target));
             }
 
-            if (Comment != null && Comment.Length > CRED_MAX_STRING_LENGTH)
+            if (Comment != null && Comment.Length > MaxCommentLength)
             {
                 ThrowTerminatingError(Errors.InvalidArgument(nameof(Comment),
-                    $"The comment is {Comment.Length} characters; at most {CRED_MAX_STRING_LENGTH} are allowed.",
+                    $"The comment is {Comment.Length} characters; at most {MaxCommentLength} are allowed.",
                     "CommentTooLong", Target));
             }
         }
