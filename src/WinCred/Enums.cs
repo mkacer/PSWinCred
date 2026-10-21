@@ -23,6 +23,7 @@ namespace WinCred
 
     /// <summary>CRED_FLAGS_* values that Windows can return.</summary>
     [Flags]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1711", Justification = "Mirrors CRED_FLAGS_* in wincred.h.")]
     public enum CredFlags : uint
     {
         None = 0,

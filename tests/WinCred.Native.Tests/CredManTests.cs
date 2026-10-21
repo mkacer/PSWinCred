@@ -95,7 +95,7 @@ namespace WinCred.Native.Tests
             var api = new FakeCredentialApi();
             FakeCredentialApi.Stored stored = Sample("server01");
             stored.Attributes.Add(("key1", 0u, new byte[] { 1, 2, 3 }));
-            stored.Attributes.Add(("key2", 0u, new byte[0]));
+            stored.Attributes.Add(("key2", 0u, Array.Empty<byte>()));
             api.Store.Add(stored);
 
             WinCredential? credential = new CredMan(api).Read("server01", CredType.Generic, false, CredEncoding.Unicode);
@@ -114,7 +114,7 @@ namespace WinCred.Native.Tests
             api.Store.Add(Sample("b.two"));
             api.Store.Add(Sample("a.three", type: CredType.DomainPassword));
 
-            var credentials = new CredMan(api).Enumerate((name, type) => name.StartsWith("a.") && type == CredType.Generic, false, CredEncoding.Unicode);
+            var credentials = new CredMan(api).Enumerate((name, type) => name.StartsWith("a.", StringComparison.Ordinal) && type == CredType.Generic, false, CredEncoding.Unicode);
 
             CollectionAssert.AreEqual(new[] { "a.one" }, credentials.Select(c => c.TargetName).ToArray());
             Assert.AreEqual(1, api.FreeCount);

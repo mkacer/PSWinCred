@@ -77,7 +77,7 @@ You need the .NET SDK from [global.json](global.json), and Windows for the tests
 
 ```powershell
 dotnet test WinCred.slnx                   # Native-layer unit tests (MSTest); net462 needs Windows
-./tools/Install-Tools.ps1                  # Pinned Pester, PSScriptAnalyzer and platyPS into .tools, signatures verified
+./tools/Install-Tools.ps1                  # Pinned Pester, PSScriptAnalyzer and PlatyPS into .tools, signatures verified
 ./tools/Invoke-ScriptAnalysis.ps1          # PSScriptAnalyzer with PSScriptAnalyzerSettings.psd1
 ./build.ps1                                # Module with help into out/WinCred
 
@@ -87,9 +87,9 @@ pwsh -NoProfile -NonInteractive -File ./tests/Invoke-Tests.ps1
 pwsh -File ./tests/Invoke-Tests.ps1 -ExcludeTag Store   # Without touching your credential store
 ```
 
-Tool versions are pinned in [tools/tools.psd1](tools/tools.psd1). The version number MUST be changed in both `Directory.Build.props` and `src/WinCred/WinCred.psd1`; `build.ps1` fails when they differ.
+Tool versions are pinned in [tools/tools.psd1](tools/tools.psd1). `Install-Tools.ps1` uses PSResourceGet, which ships with PowerShell 7.4+; in Windows PowerShell 5.1, run `Install-Module Microsoft.PowerShell.PSResourceGet -Scope CurrentUser` first. Help is written in [Microsoft.PowerShell.PlatyPS](https://github.com/PowerShell/platyPS) markdown; PlatyPS 1.0 does not write parameter default values into the compiled help, so each description states its default. The version number MUST be changed in both `Directory.Build.props` and `src/WinCred/WinCred.psd1`; `build.ps1` fails when they differ.
 
-GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the unit tests, PSScriptAnalyzer and the build, then the Pester tests in Windows PowerShell 5.1 and PowerShell 7.4, 7.5 and 7.6. A tag starting with `v` creates a draft release with WinCred.zip.
+GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the unit tests, PSScriptAnalyzer and the build, then the Pester tests in Windows PowerShell 5.1 and PowerShell 7.4, 7.5 and 7.6. A tag starting with `v` creates a draft release with WinCred.zip. [CodeQL](.github/workflows/codeql.yml) analyzes the C# code and the workflows on every push, pull request and weekly. [Dependabot](.github/dependabot.yml) proposes updates to the pinned Actions and NuGet packages after they are 14 days old.
 
 ## History
 
@@ -100,7 +100,7 @@ GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the u
 - `-Encoding` (Unicode or UTF8), `-WhatIf`/`-Confirm`, `-PassThru`, wildcard targets, pipeline from Get- to Remove-WinCredential
 - Size limits checked before writing; oversized secrets never reach Windows
 - Builds for net462 (Windows PowerShell 5.1) and net8.0 (PowerShell 7.4+); no runtime dependencies
-- Tests: MSTest for the native layer, Pester 6 against the real credential store in both editions; PSScriptAnalyzer; pinned, signature-checked tools
+- Tests: MSTest for the native layer, Pester 6 against the real credential store in both editions; PSScriptAnalyzer; .NET analyzers at the recommended level; CodeQL; pinned, signature-checked tools installed with PSResourceGet; help built with Microsoft.PowerShell.PlatyPS 1.0
 
 ### TUN.CredentialManager history
 

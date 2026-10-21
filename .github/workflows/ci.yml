@@ -35,7 +35,7 @@ jobs:
         shell: pwsh
         run: ./build.ps1 -Configuration Release
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: WinCred
           path: out/WinCred
@@ -46,6 +46,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # PowerShell 7.4 and 7.5 reach end of support on 10 Nov 2026; remove them then.
+        # 7.6 LTS is supported until 14 Nov 2028.
         include:
           - name: Windows PowerShell 5.1
             version: ''
@@ -59,7 +61,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: WinCred
           path: out/WinCred
@@ -92,7 +94,7 @@ jobs:
           & $exe -NoProfile -NonInteractive -File ./tests/Invoke-Tests.ps1
           exit $LASTEXITCODE
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: Test results (${{ matrix.name }})
@@ -105,7 +107,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: WinCred
           path: WinCred

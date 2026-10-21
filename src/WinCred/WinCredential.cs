@@ -47,6 +47,7 @@ namespace WinCred
     }
 
     /// <summary>A CREDENTIAL_ATTRIBUTEW entry.</summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1711", Justification = "Mirrors CREDENTIAL_ATTRIBUTEW in wincred.h.")]
     public sealed class WinCredentialAttribute
     {
         internal WinCredentialAttribute(string keyword, uint flags, byte[] value)

@@ -156,7 +156,7 @@ namespace WinCred
             return DateTime.FromFileTime(((long)fileTime.dwHighDateTime << 32) | fileTime.dwLowDateTime);
         }
 
-        private static IReadOnlyList<WinCredentialAttribute> ReadAttributes(CREDENTIALW native)
+        private static WinCredentialAttribute[] ReadAttributes(CREDENTIALW native)
         {
             var attributes = new WinCredentialAttribute[native.AttributeCount];
             int size = Marshal.SizeOf<CREDENTIAL_ATTRIBUTEW>();

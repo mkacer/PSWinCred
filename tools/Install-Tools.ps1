@@ -1,4 +1,5 @@
 #Requires -Version 5.1
+#Requires -Modules Microsoft.PowerShell.PSResourceGet
 <#
 .SYNOPSIS
     Saves the pinned build and test tools to .tools and verifies their signatures.
@@ -6,6 +7,9 @@
     Reads the pinned versions from tools/tools.psd1. Every .ps1, .psm1 and .dll file in a tool, and its
     module manifest, MUST carry a valid Authenticode signature, and the manifest MUST be signed by the
     expected publisher. Any other result stops the script, so an unexpected package is never imported.
+
+    Uses PSResourceGet, which ships with PowerShell 7.4 and later. In Windows PowerShell 5.1, install it first:
+    Install-Module Microsoft.PowerShell.PSResourceGet -Scope CurrentUser
 .PARAMETER Path
     Folder to save the tools in. Defaults to .tools at the repository root.
 .PARAMETER Name
@@ -50,7 +54,8 @@ foreach ($toolName in @($tools.Keys | Sort-Object)) {
     $tool = $tools[$toolName]
     $moduleDir = Join-Path $Path "$toolName/$($tool.Version)"
     if (-not (Test-Path $moduleDir)) {
-        Save-Module -Name $toolName -RequiredVersion $tool.Version -Repository PSGallery -Path $Path
+        # [x] is the NuGet range for exactly version x
+        Save-PSResource -Name $toolName -Version "[$($tool.Version)]" -Repository PSGallery -TrustRepository -AuthenticodeCheck -Path $Path
     }
 
     Assert-ToolSignature -ToolName $toolName -Tool $tool -ModuleDir $moduleDir

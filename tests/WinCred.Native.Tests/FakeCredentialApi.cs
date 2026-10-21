@@ -20,7 +20,7 @@ namespace WinCred.Native.Tests
             public string? Comment;
             public string? TargetAlias;
             public CredPersist Persist = CredPersist.Session;
-            public byte[] Blob = new byte[0];
+            public byte[] Blob = Array.Empty<byte>();
             public long LastWritten;
             public uint Flags;
             public List<(string Keyword, uint Flags, byte[] Value)> Attributes = new List<(string, uint, byte[])>();

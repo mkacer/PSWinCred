@@ -2,6 +2,7 @@
   <PropertyGroup>
     <LangVersion>latest</LangVersion>
     <Deterministic>true</Deterministic>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Authors>Michael Kacer, Dave Garnar, Markus Szumovski</Authors>
     <Copyright>(c) 2016 Dave Garnar, 2022 Markus Szumovski, 2026 Michael Kacer. MIT License.</Copyright>

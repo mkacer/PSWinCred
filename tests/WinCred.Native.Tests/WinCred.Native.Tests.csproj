@@ -8,12 +8,14 @@
     <Nullable>enable</Nullable>
     <!-- WinCred is Windows-only (CA1416), but these tests use a fake of the native API and run on any OS. -->
     <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <!-- Constant arrays in assertions are clearer than static fields; performance does not matter here. -->
+    <NoWarn>$(NoWarn);CA1861</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
-    <PackageReference Include="MSTest.TestAdapter" Version="4.4.1" />
-    <PackageReference Include="MSTest.TestFramework" Version="4.4.1" />
+    <PackageReference Include="MSTest.TestAdapter" Version="4.5.1" />
+    <PackageReference Include="MSTest.TestFramework" Version="4.5.1" />
   </ItemGroup>
 
   <ItemGroup>

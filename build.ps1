@@ -4,10 +4,10 @@
     Builds the WinCred module into out/WinCred.
 .DESCRIPTION
     Compiles both target frameworks, copies the manifest, loader, format file, about topic and license,
-    and compiles docs/en-US/*.md to MAML help with Microsoft's platyPS module from .tools.
+    and compiles docs/en-US/*.md to MAML help with Microsoft.PowerShell.PlatyPS from .tools.
     Run tools/Install-Tools.ps1 first.
 .PARAMETER SkipHelp
-    Builds without cmdlet help, for machines without platyPS.
+    Builds without cmdlet help, for machines without Microsoft.PowerShell.PlatyPS.
 #>
 [CmdletBinding()]
 param(
@@ -51,12 +51,25 @@ foreach ($framework in $frameworks) {
 }
 
 if (-not $SkipHelp) {
-    $platyPSVersion = (Import-PowerShellDataFile (Join-Path $PSScriptRoot 'tools/tools.psd1')).platyPS.Version
-    Import-Module (Join-Path $ToolsPath "platyPS/$platyPSVersion/platyPS.psd1") -Force
-    # Cmdlet help is found next to the assembly that defines the cmdlets
-    foreach ($framework in $frameworks) {
-        New-ExternalHelp -Path (Join-Path $PSScriptRoot 'docs/en-US') -OutputPath (Join-Path $outDir "$framework/en-US") -Force | Out-Null
+    $platyPS = 'Microsoft.PowerShell.PlatyPS'
+    $platyPSVersion = (Import-PowerShellDataFile (Join-Path $PSScriptRoot 'tools/tools.psd1')).$platyPS.Version
+    Import-Module (Join-Path $ToolsPath "$platyPS/$platyPSVersion/$platyPS.psd1") -Force
+
+    $markdown = @(Get-ChildItem (Join-Path $PSScriptRoot 'docs/en-US') -Filter '*.md').FullName
+    $invalid = @(Test-MarkdownCommandHelp -Path $markdown -DetailView | Where-Object { -not $_.IsValid })
+    if ($invalid.Count -gt 0) {
+        throw "Invalid help markdown:`n$(($invalid | ForEach-Object { "$($_.Path): $($_.Messages -join '; ')" }) -join "`n")"
     }
+
+    # Export-MamlCommandHelp writes <folder>/WinCred/WinCred.dll-Help.xml.
+    # Cmdlet help is found next to the assembly that defines the cmdlets.
+    $mamlDir = Join-Path $outDir 'maml'
+    Import-MarkdownCommandHelp -Path $markdown | Export-MamlCommandHelp -OutputFolder $mamlDir -Force | Out-Null
+    foreach ($framework in $frameworks) {
+        $helpDir = New-Item (Join-Path $outDir "$framework/en-US") -ItemType Directory
+        Copy-Item (Join-Path $mamlDir "$moduleName/$moduleName.dll-Help.xml") $helpDir
+    }
+    Remove-Item $mamlDir -Recurse -Force
 }
 
 Write-Information "Module built in $outDir" -InformationAction Continue
