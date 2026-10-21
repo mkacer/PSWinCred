@@ -65,6 +65,7 @@ namespace WinCred.Commands
             ThrowIfInvalid(Errors.CheckTarget(Target, Type));
             ThrowIfInvalid(Errors.CheckUserName(userName, Type, Target));
             ThrowIfInvalid(Errors.CheckComment(Comment, Target));
+            ThrowIfInvalid(Errors.CheckEncoding(Type, Encoding, Target));
 
             if (!ShouldProcess(Target, $"Create {Type} credential with {Persist} persistence"))
             {

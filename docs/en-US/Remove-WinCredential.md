@@ -74,7 +74,7 @@ HelpMessage: ''
 
 ### -Target
 
-The target name of the credential to delete. Always literal: no character is a wildcard. Credential objects piped to the cmdlet bind here through their TargetName property.
+The target name of the credential to delete. Always literal: no character is a wildcard. A NUL character (U+0000) is rejected, because Windows would end the name there. Credential objects piped to the cmdlet bind here through their TargetName property.
 
 ```yaml
 Type: System.String

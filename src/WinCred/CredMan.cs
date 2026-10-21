@@ -38,6 +38,7 @@ namespace WinCred
         /// <exception cref="Win32Exception">CredReadW failed for another reason.</exception>
         internal ReadResult? Read(string targetName, CredType type, bool includeSecret, CredEncoding encoding)
         {
+            CheckName(targetName);
             int error = api.Read(targetName, type, out SingleCredentialBuffer buffer);
             using (buffer)
             {
@@ -62,6 +63,7 @@ namespace WinCred
         /// <exception cref="Win32Exception">CredEnumerateW failed.</exception>
         internal List<ReadResult> Enumerate(string? filter, Func<string, CredType, bool> match, bool includeSecret, CredEncoding encoding)
         {
+            CheckName(filter);
             var results = new List<ReadResult>();
             int error = api.Enumerate(filter, out CredentialArrayBuffer buffer);
             using (buffer)
@@ -95,6 +97,7 @@ namespace WinCred
         internal void Create(string targetName, CredType type, string? userName, string? comment, CredPersist persist,
             SecureString secret, CredEncoding encoding)
         {
+            CheckName(targetName);
             // Encode first, so an unusable secret fails before the store is touched
             var native = new CREDENTIALW { Type = (uint)type, Persist = (uint)persist };
             var strings = new List<IntPtr>();
@@ -139,7 +142,8 @@ namespace WinCred
         /// <summary>
         /// Updates an existing credential. Fields that <paramref name="update"/> does not set keep their stored
         /// values, including persistence, the alias, the attributes, the flags Windows accepts back, and the
-        /// secret: without a new secret, CRED_PRESERVE_CREDENTIAL_BLOB keeps it and it is never decoded.
+        /// secret: without a new secret, CRED_PRESERVE_CREDENTIAL_BLOB keeps it and it is never decoded. The read still makes
+        /// Windows decrypt a Generic secret into this process; the buffer zeroes it before CredFree.
         /// </summary>
         /// <exception cref="CredentialNotFoundException">The credential does not exist.</exception>
         /// <exception cref="SecretNotEncodableException">The new secret is not valid Unicode text.</exception>
@@ -147,6 +151,7 @@ namespace WinCred
         /// <exception cref="Win32Exception">CredReadW or CredWriteW failed.</exception>
         internal void Update(string targetName, CredType type, CredentialUpdate update)
         {
+            CheckName(targetName);
             // Encode first, so an unusable secret fails before the store is touched
             IntPtr blob = IntPtr.Zero;
             uint blobSize = 0;
@@ -214,6 +219,7 @@ namespace WinCred
         /// <exception cref="Win32Exception">CredDeleteW failed for another reason.</exception>
         internal bool Delete(string targetName, CredType type)
         {
+            CheckName(targetName);
             int error = api.Delete(targetName, type);
             if (error == ERROR_NOT_FOUND)
             {
@@ -224,6 +230,28 @@ namespace WinCred
                 throw new Win32Exception(error);
             }
             return true;
+        }
+
+        internal static bool ContainsNul(string value)
+        {
+#if NETFRAMEWORK
+            return value.IndexOf('\0') >= 0;
+#else
+            return value.Contains('\0');
+#endif
+        }
+
+        /// <summary>
+        /// Windows reads a name only up to the first NUL, so a name with one would act on a different credential.
+        /// The cmdlets report this first; this is the last check before the native call.
+        /// </summary>
+        /// <exception cref="ArgumentException">The name contains U+0000.</exception>
+        private static void CheckName(string? name)
+        {
+            if (name != null && ContainsNul(name))
+            {
+                throw new ArgumentException("The target name contains U+0000, which ends a name in Windows.", nameof(name));
+            }
         }
 
         private static IntPtr EncodeSecret(SecureString secret, CredEncoding encoding, out uint size)

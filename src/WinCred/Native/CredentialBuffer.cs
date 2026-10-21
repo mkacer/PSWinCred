@@ -7,7 +7,8 @@ namespace WinCred.Native
 {
     /// <summary>
     /// Owns memory returned by CredReadW or CredEnumerateW. Windows decrypts every returned secret into
-    /// this memory, so release zeroes each secret before CredFree, on every path. The P/Invoke marshaller
+    /// this memory, so release zeroes each secret and each attribute value, which can hold secrets too,
+    /// before CredFree, on every path. The P/Invoke marshaller
     /// creates these objects directly, so no raw pointer exists without an owner.
     /// </summary>
     internal abstract class CredentialBuffer : SafeHandleZeroOrMinusOneIsInvalid
@@ -46,6 +47,16 @@ namespace WinCred.Native
             if (native.CredentialBlob != IntPtr.Zero && native.CredentialBlobSize > 0)
             {
                 BlobEncoding.ZeroMemory(native.CredentialBlob, (int)native.CredentialBlobSize);
+            }
+
+            int attributeSize = Marshal.SizeOf<CREDENTIAL_ATTRIBUTEW>();
+            for (int i = 0; i < native.AttributeCount && native.Attributes != IntPtr.Zero; i++)
+            {
+                CREDENTIAL_ATTRIBUTEW attribute = Marshal.PtrToStructure<CREDENTIAL_ATTRIBUTEW>(native.Attributes + i * attributeSize);
+                if (attribute.Value != IntPtr.Zero && attribute.ValueSize > 0)
+                {
+                    BlobEncoding.ZeroMemory(attribute.Value, (int)attribute.ValueSize);
+                }
             }
         }
     }

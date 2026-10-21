@@ -138,6 +138,29 @@ namespace WinCred.Commands
         }
 
         // Control characters such as line breaks and terminal escape sequences make names misleading in output
+        /// <summary>
+        /// Windows uses a DomainPassword secret as the Unicode password for UserName (CREDENTIALW documentation),
+        /// so it MUST be written as Unicode; UTF-8 bytes would store a password that never works.
+        /// </summary>
+        internal static ErrorRecord? CheckEncoding(CredType type, CredEncoding encoding, string target)
+        {
+            return type == CredType.DomainPassword && encoding != CredEncoding.Unicode
+                ? InvalidArgument("Encoding", "DomainPassword credentials hold the password Windows signs in with, which MUST be Unicode. Omit -Encoding.", "EncodingNotSupported", target)
+                : null;
+        }
+
+        /// <summary>
+        /// Checks the target of a credential that may already exist. Windows reads names only up to the first
+        /// NUL, so 'backup01`0x' would act on 'backup01'. Other control characters are allowed here: another
+        /// program may have stored them, and New-WinCredential rejects them.
+        /// </summary>
+        internal static ErrorRecord? CheckTargetName(string parameterName, string target)
+        {
+            return CredMan.ContainsNul(target)
+                ? InvalidArgument(parameterName, "The target contains the NUL character U+0000, which ends a name in Windows.", "InvalidCharacters", target)
+                : null;
+        }
+
         private static ErrorRecord? CheckCharacters(string parameterName, string value, string what, string target)
         {
             foreach (char c in value)

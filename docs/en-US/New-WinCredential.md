@@ -141,7 +141,7 @@ HelpMessage: ''
 
 ### -Encoding
 
-The encoding to store the secret in. Windows and most programs expect Unicode (UTF-16LE). Use UTF8 only when the program that reads the credential expects UTF-8 bytes. The 2560-byte limit applies to the encoded secret. A secret that is not valid Unicode text, such as one with an unpaired surrogate, is rejected rather than altered. The default is Unicode.
+The encoding to store the secret in. Windows and most programs expect Unicode (UTF-16LE). Use UTF8 only when the program that reads the credential expects UTF-8 bytes. The 2560-byte limit applies to the encoded secret. A secret that is not valid Unicode text, such as one with an unpaired surrogate, is rejected rather than altered. DomainPassword credentials MUST use Unicode, because Windows signs in with them. The default is Unicode.
 
 ```yaml
 Type: WinCred.CredEncoding

@@ -183,12 +183,15 @@ namespace WinCred.Native.Tests
                 for (int i = 0; i < stored.Attributes.Count; i++)
                 {
                     var a = stored.Attributes[i];
+                    IntPtr value = Bytes(a.Value);
+                    // Attribute values can hold secrets too, so they MUST be zeroed before CredFree as well
+                    secrets.Add((value, a.Value.Length));
                     Marshal.StructureToPtr(new CREDENTIAL_ATTRIBUTEW
                     {
                         Keyword = String(a.Keyword),
                         Flags = a.Flags,
                         ValueSize = (uint)a.Value.Length,
-                        Value = Bytes(a.Value),
+                        Value = value,
                     }, attributes + i * attributeSize, false);
                 }
             }

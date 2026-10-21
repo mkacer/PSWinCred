@@ -227,6 +227,27 @@ Describe 'Input validation' {
         { Set-WinCredential -Target (Get-TestTarget 'encoding') -Comment 'c' -Encoding UTF8 -Confirm:$false } |
             Should-Throw -FullyQualifiedErrorId 'EncodingWithoutSecret,*'
     }
+
+    It 'rejects a UTF8 secret for a DomainPassword credential with <Command>' -ForEach @(
+        @{ Command = 'New-WinCredential' }
+        @{ Command = 'Set-WinCredential' }
+    ) {
+        # Windows uses a DomainPassword secret as the Unicode sign-in password
+        $parameters = @{ Target = 'server.example.com'; Type = 'DomainPassword'; UserName = 'EXAMPLE\user'; Secret = (ConvertTo-TestSecret 'p'); Encoding = 'UTF8' }
+        if ($Command -eq 'Set-WinCredential') { $parameters.Confirm = $false }
+        { & $Command @parameters } | Should-Throw -FullyQualifiedErrorId 'EncodingNotSupported,*'
+    }
+
+    # Windows reads a name only up to the first NUL, so 'name<NUL>x' would act on 'name'
+    It 'rejects a NUL in the target with <Name>' -ForEach @(
+        @{ Name = 'Get-WinCredential -Target'; Call = { Get-WinCredential -Target "WinCred.Test.nul`0x" } }
+        @{ Name = 'Get-WinCredential -Target with a wildcard'; Call = { Get-WinCredential -Target "WinCred.Test.nul`0x*" } }
+        @{ Name = 'Get-WinCredential -LiteralTarget'; Call = { Get-WinCredential -LiteralTarget "WinCred.Test.nul`0x" } }
+        @{ Name = 'Set-WinCredential'; Call = { Set-WinCredential -Target "WinCred.Test.nul`0x" -Comment 'c' -Confirm:$false } }
+        @{ Name = 'Remove-WinCredential'; Call = { Remove-WinCredential -Target "WinCred.Test.nul`0x" -Confirm:$false } }
+    ) {
+        $Call | Should-Throw -FullyQualifiedErrorId 'InvalidCharacters,*'
+    }
 }
 
 Describe 'Credential store' -Tag 'Store' {

@@ -267,6 +267,43 @@ namespace WinCred.Native.Tests
             Assert.AreEqual(0, api.WriteCount);
         }
 
+        [TestMethod]
+        public void ReadZeroesAttributeValuesBeforeFreeEvenWithoutIncludeSecret()
+        {
+            var api = new FakeCredentialApi();
+            FakeCredentialApi.Stored stored = Sample("server01", "secret");
+            stored.Attributes.Add(("token", 0u, new byte[] { 1, 2, 3 }));
+            stored.Attributes.Add(("other", 0u, new byte[] { 4 }));
+            api.Store.Add(stored);
+
+            new CredMan(api).Read("server01", CredType.Generic, includeSecret: false, CredEncoding.Unicode);
+            new CredMan(api).Enumerate(null, (name, type) => false, includeSecret: false, CredEncoding.Unicode);
+
+            Assert.AreEqual(2, api.FreeCount);
+            Assert.IsTrue(api.AllSecretsZeroedBeforeFree, "Attribute values MUST be zeroed before CredFree.");
+        }
+
+        [TestMethod]
+        public void RejectsNulInNamesBeforeCallingWindows()
+        {
+            // Windows would read 'server01\0x' as 'server01' and act on that credential
+            var api = new FakeCredentialApi();
+            api.Store.Add(Sample("server01", "secret"));
+            var credMan = new CredMan(api);
+            const string name = "server01\0x";
+
+            Assert.ThrowsExactly<ArgumentException>(() => credMan.Read(name, CredType.Generic, includeSecret: true, CredEncoding.Unicode));
+            Assert.ThrowsExactly<ArgumentException>(() => credMan.Enumerate(name + "*", (n, t) => true, includeSecret: true, CredEncoding.Unicode));
+            Assert.ThrowsExactly<ArgumentException>(() => credMan.Create(name, CredType.Generic, null, null, CredPersist.Session, "new".ToSecureString(), CredEncoding.Unicode));
+            Assert.ThrowsExactly<ArgumentException>(() => credMan.Update(name, CredType.Generic, new CredentialUpdate { SetComment = true, Comment = "c" }));
+            Assert.ThrowsExactly<ArgumentException>(() => credMan.Delete(name, CredType.Generic));
+
+            Assert.AreEqual(0, api.ReadCount);
+            Assert.AreEqual(0, api.WriteCount);
+            Assert.IsNull(api.LastFilter);
+            Assert.HasCount(1, api.Store);
+        }
+
         // Updating
 
         [TestMethod]

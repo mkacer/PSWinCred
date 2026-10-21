@@ -32,7 +32,7 @@ SECURITY DEFAULTS
     - New credentials persist for the logon session (Session). Use
       -Persist LocalMachine or -Persist Enterprise to keep them longer.
     - Set-WinCredential changes only the fields you name. Without a new
-      secret, Windows keeps the stored one and WinCred never reads it.
+      secret, Windows keeps the stored one and WinCred never decodes it.
     - Set-WinCredential and Remove-WinCredential ask for confirmation by
       default. In scripts, add -Confirm:$false.
     - Get-WinCredential returns no secret and no attribute values unless you
@@ -46,7 +46,8 @@ SECURITY DEFAULTS
     - Every value is checked before the store is touched. Invalid input
       fails without writing.
     - WinCred zeroes the unmanaged copies of a secret that it makes, and
-      every decrypted secret in a buffer from Windows, before it frees them.
+      every decrypted secret and attribute value in a buffer from Windows,
+      before it frees them.
       Every buffer from Windows is released with CredFree.
 
 WHAT WINCRED CANNOT PROTECT AGAINST
@@ -67,6 +68,10 @@ WHAT WINCRED CANNOT PROTECT AGAINST
       all credentials, or a wildcard without a literal prefix, decrypts the
       whole store of the user into WinCred's process before WinCred zeroes
       the secrets it does not return. Use exact targets where possible.
+    - Set-WinCredential reads the stored credential to keep the fields you
+      do not change. For a Generic credential, Windows decrypts its secret
+      into WinCred's process during that read, even when the secret does not
+      change. WinCred does not decode it and zeroes it before freeing it.
     - Enterprise credentials roam with the user profile. Copies end up on
       other computers and in profile storage.
     - Windows has no create-only or compare-and-swap write. Another program
@@ -109,6 +114,8 @@ LIMITS
     Target, user name and comment MUST NOT contain control characters.
     DomainPassword user names MUST have the form DOMAIN\user or
     user@domain.
+    DomainPassword secrets MUST be Unicode: Windows signs in with them.
+    Names MUST NOT contain NUL (U+0000), which ends a name in Windows.
 
     Windows returns the secret of DomainPassword and DomainCertificate
     credentials only to the Local Security Authority, so WinCred can write

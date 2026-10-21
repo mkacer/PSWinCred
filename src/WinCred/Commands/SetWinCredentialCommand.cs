@@ -113,11 +113,16 @@ namespace WinCred.Commands
                 ThrowTerminatingError(Errors.InvalidArgument(nameof(Target), "Specify at least one field to change: -UserName, -Secret, -Credential, -Persist or -Comment.", "NothingToSet", Target));
             }
 
+            ThrowIfInvalid(Errors.CheckTargetName(nameof(Target), Target));
             if (update.SetUserName)
             {
                 ThrowIfInvalid(Errors.CheckUserName(update.UserName, Type, Target));
             }
             ThrowIfInvalid(Errors.CheckComment(update.Comment, Target));
+            if (update.Secret != null)
+            {
+                ThrowIfInvalid(Errors.CheckEncoding(Type, Encoding, Target));
+            }
 
             if (!ShouldProcess(Target, $"Change {string.Join(", ", changes)} of {Type} credential"))
             {

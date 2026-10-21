@@ -62,7 +62,10 @@ namespace WinCred.Commands
             {
                 foreach (string name in LiteralTarget)
                 {
-                    WriteExact(name, types);
+                    if (IsValidName(nameof(LiteralTarget), name))
+                    {
+                        WriteExact(name, types);
+                    }
                 }
                 return;
             }
@@ -76,6 +79,10 @@ namespace WinCred.Commands
 
             foreach (string target in Target)
             {
+                if (!IsValidName(nameof(Target), target))
+                {
+                    continue;
+                }
                 if (WildcardPattern.ContainsWildcardCharacters(target))
                 {
                     var pattern = new WildcardPattern(target, WildcardOptions.IgnoreCase | WildcardOptions.CultureInvariant);
@@ -86,6 +93,16 @@ namespace WinCred.Commands
                     WriteExact(WildcardPattern.Unescape(target), types);
                 }
             }
+        }
+
+        private bool IsValidName(string parameterName, string target)
+        {
+            ErrorRecord? invalid = Errors.CheckTargetName(parameterName, target);
+            if (invalid != null)
+            {
+                WriteError(invalid);
+            }
+            return invalid == null;
         }
 
         // CredReadW per type: Windows decrypts only the requested credential, never the whole store

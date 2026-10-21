@@ -22,6 +22,13 @@ namespace WinCred.Commands
 
         protected override void ProcessRecord()
         {
+            ErrorRecord? invalid = Errors.CheckTargetName(nameof(Target), Target);
+            if (invalid != null)
+            {
+                WriteError(invalid);
+                return;
+            }
+
             if (!ShouldProcess(Target, $"Remove {Type} credential"))
             {
                 return;

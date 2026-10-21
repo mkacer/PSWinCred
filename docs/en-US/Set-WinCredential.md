@@ -39,7 +39,7 @@ This cmdlet has no aliases.
 
 Changes an existing credential in Windows Credential Manager. Only the fields you specify change. Every other field keeps its stored value: the user name, the secret, the persistence, the comment, the target alias, the attributes and the flags. An empty string removes the user name or the comment.
 
-Without -Secret or -Credential, Windows keeps the stored secret without returning it to WinCred, so it is never decrypted into PowerShell.
+Without -Secret or -Credential, the stored secret is kept and never decoded. The cmdlet still reads the stored credential to keep the other fields, and for a Generic credential Windows decrypts the secret into the process during that read; WinCred zeroes it before freeing it.
 
 If the credential does not exist, the cmdlet writes a CredentialNotFound error and creates nothing. To create a credential, use New-WinCredential.
 
@@ -137,7 +137,7 @@ HelpMessage: ''
 
 ### -Encoding
 
-The encoding to store the new secret in. Valid only together with -Secret or -Credential. Windows and most programs expect Unicode (UTF-16LE). The default is Unicode.
+The encoding to store the new secret in. Valid only together with -Secret or -Credential. Windows and most programs expect Unicode (UTF-16LE). DomainPassword credentials MUST use Unicode, because Windows signs in with them. The default is Unicode.
 
 ```yaml
 Type: WinCred.CredEncoding
@@ -205,7 +205,7 @@ HelpMessage: ''
 
 ### -Secret
 
-The new secret as a SecureString. Without it, the stored secret is kept; Windows keeps it without returning it to WinCred.
+The new secret as a SecureString. Without it, the stored secret is kept and never decoded.
 
 ```yaml
 Type: System.Security.SecureString
@@ -226,7 +226,7 @@ HelpMessage: ''
 
 ### -Target
 
-The target name of the credential to change. Always literal. Credential objects piped to the cmdlet bind here through their TargetName property.
+The target name of the credential to change. Always literal. A NUL character (U+0000) is rejected, because Windows would end the name there. Credential objects piped to the cmdlet bind here through their TargetName property.
 
 ```yaml
 Type: System.String

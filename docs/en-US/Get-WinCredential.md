@@ -183,7 +183,7 @@ HelpMessage: ''
 
 ### -LiteralTarget
 
-The exact target names to get. No character is a wildcard. Credential objects piped to the cmdlet bind here through their TargetName property. Target names are not case-sensitive.
+The exact target names to get. No character is a wildcard. A NUL character (U+0000) is rejected, because Windows would end the name there. Credential objects piped to the cmdlet bind here through their TargetName property. Target names are not case-sensitive.
 
 ```yaml
 Type: System.String[]
