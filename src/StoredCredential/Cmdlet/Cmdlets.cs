@@ -153,13 +153,8 @@ namespace PSCredentialManager.Cmdlet
         [ValidateLength(1, 337)]
         public string Target = Environment.MachineName;
 
-        [Parameter(ParameterSetName = "Plain Text")]
         [Parameter(ParameterSetName = "Secure String")]
         public string UserName = Environment.UserName;
-
-        [Parameter(Mandatory = true, ParameterSetName = "Plain Text")]
-        [AllowEmptyString()]
-        public string Password;
 
         [Parameter(Mandatory = true, ParameterSetName = "Secure String")]
         public SecureString SecurePassword;
@@ -186,14 +181,12 @@ namespace PSCredentialManager.Cmdlet
         protected override void ProcessRecord()
         {
             string userName = UserName;
-            string password = Password;
             SecureString securePassword = SecurePassword;
 
             if (ParameterSetName == "PSCredentialObject")
             {
                 userName = Credentials.UserName;
                 securePassword = Credentials.Password;
-                password = null;
             }
 
             if (!ShouldProcess(Target, "Create stored credential"))
@@ -205,7 +198,6 @@ namespace PSCredentialManager.Cmdlet
             Credential credential = new Credential()
             {
                 TargetName = Target,
-                Password = password,
                 SecurePassword = securePassword,
                 AttributeCount = 0,
                 Attributes = IntPtr.Zero,
@@ -225,7 +217,7 @@ namespace PSCredentialManager.Cmdlet
             if (nativeCredential.CredentialBlobSize > c_maxPasswordBytes)
             {
                 nativeCredential.Release();
-                ErrorRecord error = PasswordTooLong(ParameterSetName == "PSCredentialObject" ? "Credentials" : ParameterSetName == "Plain Text" ? "Password" : "SecurePassword");
+                ErrorRecord error = PasswordTooLong(ParameterSetName == "PSCredentialObject" ? "Credentials" : "SecurePassword");
                 if (ParameterSetName == "PSCredentialObject")
                 {
                     //Pipeline input: skip this record only
@@ -253,7 +245,6 @@ namespace PSCredentialManager.Cmdlet
             }
 
             //Like Get-StoredCredential -AsCredentialObject, the output never holds the password
-            credential.Password = null;
             credential.SecurePassword = null;
             WriteObject(credential);
         }

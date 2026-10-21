@@ -43,11 +43,11 @@ namespace PSCredentialManager.Tests
         }
 
         [TestMethod]
-        public void NewStoredCredentialAcceptsEmptyPlainPassword()
+        public void NewStoredCredentialHasNoPlainTextPassword()
         {
             CommandInfo command = Invoke("Get-Command New-StoredCredential").Single().BaseObject as CommandInfo;
-            ParameterMetadata password = command.Parameters["Password"];
-            Assert.IsTrue(password.Attributes.OfType<AllowEmptyStringAttribute>().Any());
+            Assert.IsFalse(command.Parameters.ContainsKey("Password"));
+            CollectionAssert.AreEquivalent(new[] { "Secure String", "PSCredentialObject" }, command.ParameterSets.Select(p => p.Name).ToArray());
         }
 
         [TestMethod]

@@ -29,6 +29,13 @@ function Assert-Equal($Expected, $Actual, [string]$What) {
     if ($Expected -cne $Actual) { throw "$What`: expected '$Expected', got '$Actual'." }
 }
 
+function ConvertTo-Secure([string]$Text) {
+    # Test data only: real callers SHOULD get a SecureString from Read-Host -AsSecureString or Get-Credential
+    $secure = [securestring]::new()
+    foreach ($c in $Text.ToCharArray()) { $secure.AppendChar($c) }
+    $secure
+}
+
 function ConvertTo-PlainText([securestring]$Secure) {
     [System.Net.NetworkCredential]::new('', $Secure).Password
 }
@@ -87,13 +94,13 @@ try {
     }
 
     Test-Case 'enumeration writes one pipeline object per credential' {
-        New-StoredCredential -Target "$prefix.second" -UserName 'smoke-user' -Password 'x' | Out-Null
+        New-StoredCredential -Target "$prefix.second" -UserName 'smoke-user' -SecurePassword (ConvertTo-Secure 'x') | Out-Null
         $mine = @(Get-StoredCredential -AsCredentialObject | Where-Object { $_.TargetName -like "$prefix*" })
         Assert-Equal 2 $mine.Count 'count'
     }
 
     Test-Case 'empty password becomes a PSCredential' {
-        New-StoredCredential -Target "$prefix.empty" -UserName 'smoke-user' -Password '' | Out-Null
+        New-StoredCredential -Target "$prefix.empty" -UserName 'smoke-user' -SecurePassword (ConvertTo-Secure '') | Out-Null
         $cred = Get-StoredCredential -Target "$prefix.empty"
         Assert-Equal 0 $cred.Password.Length 'password length'
     }
@@ -107,14 +114,18 @@ try {
 
     Test-Case 'too-long password stops before writing' {
         $threw = $false
-        try { New-StoredCredential -Target "$prefix.long" -UserName 'u' -Password ('a' * 1281) | Out-Null }
+        try { New-StoredCredential -Target "$prefix.long" -UserName 'u' -SecurePassword (ConvertTo-Secure ('a' * 1281)) | Out-Null }
         catch { $threw = $true }
         if (-not $threw) { throw 'No error.' }
         Assert-Equal $null (Get-StoredCredential -Target "$prefix.long") 'stored credential'
     }
 
-    Test-Case 'New-StoredCredential -Password output holds no password' {
-        $result = New-StoredCredential -Target "$prefix.plain" -UserName 'u' -Password 'plain'
+    Test-Case 'New-StoredCredential has no plain-text -Password' {
+        Assert-Equal $false ((Get-Command New-StoredCredential).Parameters.ContainsKey('Password')) 'has -Password'
+    }
+
+    Test-Case 'New-StoredCredential output never holds a password' {
+        $result = New-StoredCredential -Target "$prefix.plain" -UserName 'u' -SecurePassword (ConvertTo-Secure 'plain')
         Assert-Equal $null $result.Password 'Password'
         Assert-Equal $null $result.SecurePassword 'SecurePassword'
         Assert-Equal 0 $result.PasswordSize 'PasswordSize'
@@ -122,7 +133,7 @@ try {
 
     Test-Case '-Encoding UTF8 round-trips non-ASCII passwords' {
         $text = "p$([char]0xE4)ss$([char]0xE9)"
-        New-StoredCredential -Target "$prefix.utf8" -UserName 'u' -Password $text -Encoding UTF8 | Out-Null
+        New-StoredCredential -Target "$prefix.utf8" -UserName 'u' -SecurePassword (ConvertTo-Secure $text) -Encoding UTF8 | Out-Null
         $cred = Get-StoredCredential -Target "$prefix.utf8" -AsCredentialObject -IncludeClearPassword -Encoding UTF8
         Assert-Equal $text $cred.Password 'Password'
         Assert-Equal 7 $cred.PasswordSize 'PasswordSize'
@@ -131,9 +142,9 @@ try {
 
     Test-Case 'the size limit applies to the encoded password' {
         # 1281 ASCII chars are 1281 bytes in UTF-8, so they fit
-        New-StoredCredential -Target "$prefix.utf8long" -UserName 'u' -Password ('a' * 1281) -Encoding UTF8 | Out-Null
+        New-StoredCredential -Target "$prefix.utf8long" -UserName 'u' -SecurePassword (ConvertTo-Secure ('a' * 1281)) -Encoding UTF8 | Out-Null
         $threw = $false
-        try { New-StoredCredential -Target "$prefix.utf8toolong" -UserName 'u' -Password ([string][char]0xE9 * 1281) -Encoding UTF8 | Out-Null }
+        try { New-StoredCredential -Target "$prefix.utf8toolong" -UserName 'u' -SecurePassword (ConvertTo-Secure ([string][char]0xE9 * 1281)) -Encoding UTF8 | Out-Null }
         catch { $threw = $true }
         if (-not $threw) { throw 'No error for 2562 bytes.' }
     }

@@ -39,7 +39,8 @@ Remove-StoredCredential -Target backup01
 * The module is named StoredCredential. Change `Import-Module TUN.CredentialManager` and `#Requires -Modules` lines. The GUID is new.
 * Requires Windows PowerShell 5.1 or PowerShell 7. Windows PowerShell 3.0 and 4.0 are no longer supported.
 * `Get-StoredCredential -AsCredentialObject` no longer fills `Password` and `PasswordSize`. Add `-IncludeClearPassword` to get them. `-ExcludeClearPassword` has no effect anymore, except that it overrides `-IncludeClearPassword`.
-* `New-StoredCredential` requires a password through `-SecurePassword`, `-Password` or `-Credentials`. It no longer stores a random password when you give none. In an interactive session it prompts for `-SecurePassword`. To store a random password, use `-Password (Get-StrongPassword)`.
+* `New-StoredCredential` requires a password through `-SecurePassword` or `-Credentials`. It no longer stores a random password when you give none. In an interactive session it prompts for `-SecurePassword`.
+* `New-StoredCredential -Password` is removed. A plain-text password parameter puts the password in command history and transcripts. Use `-SecurePassword (Read-Host -AsSecureString)` or `-Credential (Get-Credential)`.
 * `New-StoredCredential` never returns the password. Its output matches `Get-StoredCredential -AsCredentialObject`.
 * `New-StoredCredential` and `Remove-StoredCredential` support `-WhatIf` and `-Confirm`.
 * The `PaswordSize` property of Credential objects is renamed to `PasswordSize`.
@@ -86,7 +87,7 @@ GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs all o
 - Renamed to StoredCredential with a new GUID; maintained by Michael Kacer
 - Requires Windows PowerShell 5.1 or PowerShell 7; separate native builds for each edition
 - Breaking: clear-text password in Credential objects is opt-in with `-IncludeClearPassword`
-- Breaking: New-StoredCredential requires a password and never returns it
+- Breaking: New-StoredCredential requires a password, has no plain-text -Password parameter, and never returns the password
 - Breaking: `PaswordSize` renamed to `PasswordSize`; helper assemblies merged into StoredCredential.dll; meaningful error IDs
 - New: `-Encoding` (Unicode or UTF8) on Get-StoredCredential and New-StoredCredential
 - New: `-WhatIf`/`-Confirm` on New-StoredCredential and Remove-StoredCredential; `-Credential` alias

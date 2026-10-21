@@ -19,13 +19,6 @@ New-StoredCredential [-Target <String>] [-UserName <String>] -SecurePassword <Se
  [-Encoding <CredEncoding>] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
-### Plain Text
-```
-New-StoredCredential [-Target <String>] [-UserName <String>] -Password <String> [-Comment <String>]
- [-Type <CredType>] [-Persist <CredPersist>]
- [-Encoding <CredEncoding>] [-WhatIf] [-Confirm] [<CommonParameters>]
-```
-
 ### PSCredentialObject
 ```
 New-StoredCredential [-Target <String>] [-Comment <String>] [-Type <CredType>] [-Persist <CredPersist>]
@@ -36,7 +29,7 @@ New-StoredCredential [-Target <String>] [-Comment <String>] [-Type <CredType>] [
 ## DESCRIPTION
 Creates a credential in the Windows Credential Manager. If a credential with the same target and type exists, it is replaced.
 
-You MUST give a password through -SecurePassword, -Password or -Credentials.
+You MUST give a password through -SecurePassword or -Credentials. There is no plain-text password parameter, so passwords do not end up in command history or transcripts.
 If you give none of them in an interactive session, PowerShell prompts for -SecurePassword.
 The encoded password can be up to 2560 bytes long: 1280 characters in Unicode, or fewer for non-ASCII characters in UTF-8.
 
@@ -51,9 +44,9 @@ PS C:\> Get-Credential -UserName test-user -Message "Password please" | New-Stor
 
 Creates a credential for Server01 with the user name and password from Get-Credential.
 
-### Example 2: Store a credential with a plain-text password
+### Example 2: Store a credential with a password typed at a prompt
 ```powershell
-PS C:\> New-StoredCredential -Target server01 -UserName test-user -Password Password1
+PS C:\> New-StoredCredential -Target server01 -UserName test-user -SecurePassword (Read-Host -AsSecureString -Prompt Password)
 
 Flags          : 0
 Type           : Generic
@@ -70,15 +63,7 @@ TargetAlias    :
 UserName       : test-user
 ```
 
-Creates a credential for server01 with the user name test-user and the password Password1.
-A plain-text password can end up in your command history. Prefer -SecurePassword or -Credentials.
-
-### Example 3: Store a generated password
-```powershell
-PS C:\> New-StoredCredential -Target server01 -UserName test-user -Password (Get-StrongPassword -Length 20)
-```
-
-Creates a credential with a random 20-character password.
+Creates a credential for server01 with the user name test-user. The returned object does not contain the password.
 
 ## PARAMETERS
 
@@ -141,21 +126,6 @@ Accepted values: Unicode, UTF8
 Required: False
 Position: Named
 Default value: Unicode
-Accept pipeline input: False
-Accept wildcard characters: False
-```
-
-### -Password
-The password as plain text. It can be empty.
-
-```yaml
-Type: String
-Parameter Sets: Plain Text
-Aliases:
-
-Required: True
-Position: Named
-Default value: None
 Accept pipeline input: False
 Accept wildcard characters: False
 ```
@@ -227,7 +197,7 @@ The user name of the credential.
 
 ```yaml
 Type: String
-Parameter Sets: Secure String, Plain Text
+Parameter Sets: Secure String
 Aliases:
 
 Required: False
@@ -270,5 +240,3 @@ Returns the stored credential without its password.
 ## RELATED LINKS
 
 [Get-StoredCredential](Get-StoredCredential.md)
-
-[Get-StrongPassword](Get-StrongPassword.md)
