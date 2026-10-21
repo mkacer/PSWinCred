@@ -1,6 +1,6 @@
 ---
-external help file: TUN.CredentialManager.dll-Help.xml
-Module Name: TUN.CredentialManager
+external help file: StoredCredential.dll-Help.xml
+Module Name: StoredCredential
 online version:
 schema: 2.0.0
 ---

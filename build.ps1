@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Builds the TUN.CredentialManager module into out/TUN.CredentialManager.
+    Builds the StoredCredential module into out/StoredCredential.
 .DESCRIPTION
     Compiles both target frameworks, copies the manifest, loader and license,
     and compiles docs/en-US/*.md to MAML help with Microsoft's platyPS module.
@@ -19,7 +19,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$moduleName = 'TUN.CredentialManager'
+$moduleName = 'StoredCredential'
 $projectDir = Join-Path $PSScriptRoot "src/$moduleName"
 $outDir = Join-Path $PSScriptRoot "out/$moduleName"
 $frameworks = 'net462', 'netstandard2.0'

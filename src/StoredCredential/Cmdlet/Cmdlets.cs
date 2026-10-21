@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Text;
 using System.Management.Automation;
 using PSCredentialManager.Common.Enum;
 using PSCredentialManager.Api;
@@ -49,6 +48,12 @@ namespace PSCredentialManager.Cmdlet
         [Parameter(ParameterSetName = "CredentialObject Output")]
         public SwitchParameter AsCredentialObject;
 
+        /// <summary>
+        /// Encoding of the stored password. Unicode (UTF-16LE) is what Windows uses.
+        /// </summary>
+        [Parameter()]
+        public CredEncoding Encoding = CredEncoding.Unicode;
+
         protected override void ProcessRecord()
         {
             CredentialManager credentialManager = new CredentialManager();
@@ -63,7 +68,7 @@ namespace PSCredentialManager.Cmdlet
                 IEnumerable<Credential> credential;
                 try
                 {
-                    credential = credentialManager.ReadCred(includeClearPassword, includeSecurePassword);
+                    credential = credentialManager.ReadCred(includeClearPassword, includeSecurePassword, Encoding);
                 }
                 catch (Exception exception)
                 {
@@ -93,7 +98,7 @@ namespace PSCredentialManager.Cmdlet
                 {
                     //Retrieve credential from Cred Store
                     WriteVerbose("Retrieving requested credential from Windows Credential Manager");
-                    credential = credentialManager.ReadCred(Target, Type, includeClearPassword, includeSecurePassword);
+                    credential = credentialManager.ReadCred(Target, Type, includeClearPassword, includeSecurePassword, Encoding);
                 }
                 catch (CredentialNotFoundException exception)
                 {
@@ -121,21 +126,24 @@ namespace PSCredentialManager.Cmdlet
 
         private void WritePsCredential(Credential credential)
         {
+            PSCredential psCredential;
             try
             {
-                WriteObject(credential.ToPsCredential());
+                psCredential = credential.ToPsCredential();
             }
             catch (Exception ex)
             {
                 WriteWarning($"{credential.TargetName}: {ex.Message}");
+                return;
             }
+            WriteObject(psCredential);
         }
     }
 
     /// <summary>
     /// Creates a new credential in the Windows Credential Manager.
     /// </summary>
-    [Cmdlet(VerbsCommon.New, "StoredCredential", DefaultParameterSetName = "Secure String")]
+    [Cmdlet(VerbsCommon.New, "StoredCredential", DefaultParameterSetName = "Secure String", SupportsShouldProcess = true)]
     [OutputType(typeof(Credential))]
     public class NewStoredCredential : PSCmdlet
     {
@@ -165,22 +173,15 @@ namespace PSCredentialManager.Cmdlet
         [Parameter()]
         public CredPersist Persist = CredPersist.Session;
 
+        /// <summary>
+        /// Encoding to store the password in. Unicode (UTF-16LE) is what Windows uses.
+        /// </summary>
+        [Parameter()]
+        public CredEncoding Encoding = CredEncoding.Unicode;
+
         [Parameter(Mandatory = true, ValueFromPipeline = true, ParameterSetName = "PSCredentialObject")]
+        [Alias("Credential")]
         public PSCredential Credentials;
-
-        protected override void BeginProcessing()
-        {
-            //Check password does not exceed 2560 bytes
-            if (MyInvocation.BoundParameters.ContainsKey("Password") && Encoding.Unicode.GetByteCount(Password) > c_maxPasswordBytes)
-            {
-                ThrowTerminatingError(PasswordTooLong("Password"));
-            }
-
-            if (MyInvocation.BoundParameters.ContainsKey("SecurePassword") && SecurePassword.Length * 2 > c_maxPasswordBytes)
-            {
-                ThrowTerminatingError(PasswordTooLong("SecurePassword"));
-            }
-        }
 
         protected override void ProcessRecord()
         {
@@ -193,12 +194,11 @@ namespace PSCredentialManager.Cmdlet
                 userName = Credentials.UserName;
                 securePassword = Credentials.Password;
                 password = null;
+            }
 
-                if (securePassword.Length * 2 > c_maxPasswordBytes)
-                {
-                    WriteError(PasswordTooLong("Credentials"));
-                    return;
-                }
+            if (!ShouldProcess(Target, "Create stored credential"))
+            {
+                return;
             }
 
             //Create credential object
@@ -207,7 +207,6 @@ namespace PSCredentialManager.Cmdlet
                 TargetName = Target,
                 Password = password,
                 SecurePassword = securePassword,
-                PasswordSize = password != null ? (UInt32)Encoding.Unicode.GetByteCount(password) : uint.MinValue,
                 AttributeCount = 0,
                 Attributes = IntPtr.Zero,
                 Comment = Comment,
@@ -219,30 +218,49 @@ namespace PSCredentialManager.Cmdlet
             };
 
             //Convert credential to native credential
-            NativeCredential nativeCredential = credential.ToNativeCredential();
+            NativeCredential nativeCredential = credential.ToNativeCredential(Encoding);
             CredentialManager credentialManager = new CredentialManager();
+
+            //Check the encoded password does not exceed 2560 bytes
+            if (nativeCredential.CredentialBlobSize > c_maxPasswordBytes)
+            {
+                nativeCredential.Release();
+                ErrorRecord error = PasswordTooLong(ParameterSetName == "PSCredentialObject" ? "Credentials" : ParameterSetName == "Plain Text" ? "Password" : "SecurePassword");
+                if (ParameterSetName == "PSCredentialObject")
+                {
+                    //Pipeline input: skip this record only
+                    WriteError(error);
+                    return;
+                }
+                ThrowTerminatingError(error);
+            }
 
             try
             {
                 //Write credential to Windows Credential manager
                 WriteVerbose("Writing credential to Windows Credential Manager");
                 credentialManager.WriteCred(nativeCredential);
-                WriteObject(credential);
             }
             catch (Exception exception)
             {
                 WriteError(new ErrorRecord(exception, "WriteFailed", ErrorCategory.InvalidOperation, Target));
+                return;
             }
             finally
             {
                 //Zero the unmanaged password copy and free all unmanaged strings
                 nativeCredential.Release();
             }
+
+            //Like Get-StoredCredential -AsCredentialObject, the output never holds the password
+            credential.Password = null;
+            credential.SecurePassword = null;
+            WriteObject(credential);
         }
 
         private static ErrorRecord PasswordTooLong(string parameterName)
         {
-            Exception exception = new ArgumentOutOfRangeException(parameterName, $"The specified password has exceeded {c_maxPasswordBytes} bytes");
+            Exception exception = new ArgumentOutOfRangeException(parameterName, $"The encoded password exceeds {c_maxPasswordBytes} bytes");
             return new ErrorRecord(exception, "PasswordTooLong", ErrorCategory.InvalidArgument, parameterName);
         }
     }
@@ -250,7 +268,7 @@ namespace PSCredentialManager.Cmdlet
     /// <summary>
     /// Deletes a credential from the Windows Credential Manager.
     /// </summary>
-    [Cmdlet(VerbsCommon.Remove, "StoredCredential")]
+    [Cmdlet(VerbsCommon.Remove, "StoredCredential", SupportsShouldProcess = true)]
     public class RemoveStoredCredential : PSCmdlet
     {
         [Parameter(Mandatory = true, ValueFromPipeline = true)]
@@ -261,6 +279,11 @@ namespace PSCredentialManager.Cmdlet
 
         protected override void ProcessRecord()
         {
+            if (!ShouldProcess(Target, "Remove stored credential"))
+            {
+                return;
+            }
+
             CredentialManager credentialManager = new CredentialManager();
 
             //Delete credential from store

@@ -1,4 +1,5 @@
 using PSCredentialManager.Common;
+using PSCredentialManager.Common.Enum;
 using System;
 using System.Runtime.InteropServices;
 
@@ -7,10 +8,10 @@ namespace PSCredentialManager.Api.Extensions
     public static class CredentialExtensions
     {
         /// <summary>
-        /// Copies the credential into unmanaged memory. The caller MUST call
-        /// <see cref="Release"/> on the result once it is no longer needed.
+        /// Copies the credential into unmanaged memory, with the password in the given encoding.
+        /// The caller MUST call <see cref="Release"/> on the result once it is no longer needed.
         /// </summary>
-        public static NativeCredential ToNativeCredential(this Credential credential)
+        public static NativeCredential ToNativeCredential(this Credential credential, CredEncoding encoding = CredEncoding.Unicode)
         {
             NativeCredential nativeCredential = new NativeCredential()
             {
@@ -27,17 +28,8 @@ namespace PSCredentialManager.Api.Extensions
                 nativeCredential.Comment = Marshal.StringToCoTaskMemUni(credential.Comment);
                 nativeCredential.TargetName = Marshal.StringToCoTaskMemUni(credential.TargetName);
                 nativeCredential.UserName = Marshal.StringToCoTaskMemUni(credential.UserName);
-                if (credential.SecurePassword != null)
-                {
-                    nativeCredential.CredentialBlobSize = (uint)credential.SecurePassword.Length * 2;
-                    nativeCredential.CredentialBlob = Marshal.SecureStringToCoTaskMemUnicode(credential.SecurePassword);
-                }
-                else
-                {
-                    // Size comes from the string itself, so a wrong PasswordSize cannot overrun the buffer
-                    nativeCredential.CredentialBlobSize = (uint)(credential.Password?.Length ?? 0) * 2;
-                    nativeCredential.CredentialBlob = Marshal.StringToCoTaskMemUni(credential.Password);
-                }
+                nativeCredential.CredentialBlob = EncodePassword(credential, encoding, out uint blobSize);
+                nativeCredential.CredentialBlobSize = blobSize;
             }
             catch (Exception ex)
             {
@@ -46,6 +38,31 @@ namespace PSCredentialManager.Api.Extensions
             }
 
             return nativeCredential;
+        }
+
+        // Prefers SecurePassword; the blob size always comes from the encoded password, never from PasswordSize
+        private static unsafe IntPtr EncodePassword(Credential credential, CredEncoding encoding, out uint size)
+        {
+            if (credential.SecurePassword != null)
+            {
+                int length = credential.SecurePassword.Length;
+                IntPtr chars = Marshal.SecureStringToCoTaskMemUnicode(credential.SecurePassword);
+                try
+                {
+                    return BlobEncoding.Encode((char*)chars, length, encoding, out size);
+                }
+                finally
+                {
+                    ZeroMemory(chars, length * 2);
+                    Marshal.FreeCoTaskMem(chars);
+                }
+            }
+
+            string password = credential.Password ?? "";
+            fixed (char* chars = password)
+            {
+                return BlobEncoding.Encode(chars, password.Length, encoding, out size);
+            }
         }
 
         /// <summary>

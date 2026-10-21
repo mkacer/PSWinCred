@@ -1,6 +1,6 @@
 ---
-external help file: TUN.CredentialManager.dll-Help.xml
-Module Name: TUN.CredentialManager
+external help file: StoredCredential.dll-Help.xml
+Module Name: StoredCredential
 online version:
 schema: 2.0.0
 ---
@@ -14,7 +14,7 @@ Gets stored credentials from the Windows Credential Manager.
 
 ```
 Get-StoredCredential [-Target <String>] [-Type <CredType>] [-IncludeClearPassword] [-ExcludeClearPassword]
- [-IncludeSecurePassword] [-AsCredentialObject] [<CommonParameters>]
+ [-IncludeSecurePassword] [-AsCredentialObject] [-Encoding <CredEncoding>] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -68,6 +68,13 @@ Password1
 
 Returns the clear-text password. Use this only when a program needs the password as plain text.
 
+### Example 4: Read a credential stored as UTF-8
+```powershell
+PS C:\> Get-StoredCredential -Target git:https://example.com -Encoding UTF8
+```
+
+Reads a credential whose password another program stored as UTF-8 bytes.
+
 ## PARAMETERS
 
 ### -AsCredentialObject
@@ -81,6 +88,24 @@ Aliases:
 Required: False
 Position: Named
 Default value: False
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -Encoding
+The encoding of the stored password. Windows and most programs store passwords as Unicode (UTF-16LE).
+Use UTF8 for credentials that another program stored as UTF-8 bytes, such as some Git credential helpers.
+With the wrong encoding, the password comes back garbled; the cmdlet cannot detect this.
+
+```yaml
+Type: CredEncoding
+Parameter Sets: (All)
+Aliases:
+Accepted values: Unicode, UTF8
+
+Required: False
+Position: Named
+Default value: Unicode
 Accept pipeline input: False
 Accept wildcard characters: False
 ```

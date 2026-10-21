@@ -30,14 +30,14 @@ namespace PSCredentialManager.Api
             }
         }
 
-        public Credential ReadCred(string target, CredType type, bool includeClearPassword, bool includeSecurePassword)
+        public Credential ReadCred(string target, CredType type, bool includeClearPassword, bool includeSecurePassword, CredEncoding encoding = CredEncoding.Unicode)
         {
             int error = api.CredRead(target, type, out IntPtr nativeCredentialPointer);
             if (error == 0)
             {
                 using (CriticalCredentialHandle critCred = new CriticalCredentialHandle(nativeCredentialPointer, api))
                 {
-                    return critCred.GetCredential(includeClearPassword, includeSecurePassword);
+                    return critCred.GetCredential(includeClearPassword, includeSecurePassword, encoding);
                 }
             }
             else if (error == ErrorNotFound)
@@ -63,14 +63,14 @@ namespace PSCredentialManager.Api
             }
         }
 
-        public IEnumerable<Credential> ReadCred(bool includeClearPassword, bool includeSecurePassword)
+        public IEnumerable<Credential> ReadCred(bool includeClearPassword, bool includeSecurePassword, CredEncoding encoding = CredEncoding.Unicode)
         {
             int error = api.CredEnumerate(null, CredEnumerateAllCredentials, out int count, out IntPtr pCredentials);
             if (error == 0)
             {
                 using (CriticalCredentialHandle credHandle = new CriticalCredentialHandle(pCredentials, api))
                 {
-                    return credHandle.GetCredentials(count, includeClearPassword, includeSecurePassword);
+                    return credHandle.GetCredentials(count, includeClearPassword, includeSecurePassword, encoding);
                 }
             }
             else if (error == ErrorNotFound)

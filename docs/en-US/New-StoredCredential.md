@@ -1,6 +1,6 @@
 ---
-external help file: TUN.CredentialManager.dll-Help.xml
-Module Name: TUN.CredentialManager
+external help file: StoredCredential.dll-Help.xml
+Module Name: StoredCredential
 online version:
 schema: 2.0.0
 ---
@@ -15,19 +15,22 @@ Creates a credential in the Windows Credential Manager.
 ### Secure String (Default)
 ```
 New-StoredCredential [-Target <String>] [-UserName <String>] -SecurePassword <SecureString> [-Comment <String>]
- [-Type <CredType>] [-Persist <CredPersist>] [<CommonParameters>]
+ [-Type <CredType>] [-Persist <CredPersist>]
+ [-Encoding <CredEncoding>] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ### Plain Text
 ```
 New-StoredCredential [-Target <String>] [-UserName <String>] -Password <String> [-Comment <String>]
- [-Type <CredType>] [-Persist <CredPersist>] [<CommonParameters>]
+ [-Type <CredType>] [-Persist <CredPersist>]
+ [-Encoding <CredEncoding>] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ### PSCredentialObject
 ```
 New-StoredCredential [-Target <String>] [-Comment <String>] [-Type <CredType>] [-Persist <CredPersist>]
- -Credentials <PSCredential> [<CommonParameters>]
+ -Credentials <PSCredential>
+ [-Encoding <CredEncoding>] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -35,7 +38,9 @@ Creates a credential in the Windows Credential Manager. If a credential with the
 
 You MUST give a password through -SecurePassword, -Password or -Credentials.
 If you give none of them in an interactive session, PowerShell prompts for -SecurePassword.
-The password can be up to 1280 characters (2560 bytes) long.
+The encoded password can be up to 2560 bytes long: 1280 characters in Unicode, or fewer for non-ASCII characters in UTF-8.
+
+The returned object never contains the password, the same as Get-StoredCredential -AsCredentialObject.
 
 ## EXAMPLES
 
@@ -55,8 +60,8 @@ Type           : Generic
 TargetName     : server01
 Comment        : Updated by: Dave on: 23/04/2016
 LastWritten    : 23/04/2016 10:48:56
-PasswordSize   : 18
-Password       : Password1
+PasswordSize   : 0
+Password       :
 SecurePassword :
 Persist        : Session
 AttributeCount : 0
@@ -92,18 +97,51 @@ Accept pipeline input: False
 Accept wildcard characters: False
 ```
 
+### -Confirm
+Prompts you for confirmation before running the cmdlet.
+
+```yaml
+Type: SwitchParameter
+Parameter Sets: (All)
+Aliases: cf
+
+Required: False
+Position: Named
+Default value: False
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
 ### -Credentials
 The user name and password as a PSCredential object.
 
 ```yaml
 Type: PSCredential
 Parameter Sets: PSCredentialObject
-Aliases:
+Aliases: Credential
 
 Required: True
 Position: Named
 Default value: None
 Accept pipeline input: True (ByValue)
+Accept wildcard characters: False
+```
+
+### -Encoding
+The encoding to store the password in. Windows and most programs expect Unicode (UTF-16LE).
+Use UTF8 only when the program that reads the credential expects UTF-8 bytes.
+The 2560-byte size limit applies to the encoded password.
+
+```yaml
+Type: CredEncoding
+Parameter Sets: (All)
+Aliases:
+Accepted values: Unicode, UTF8
+
+Required: False
+Position: Named
+Default value: Unicode
+Accept pipeline input: False
 Accept wildcard characters: False
 ```
 
@@ -199,6 +237,21 @@ Accept pipeline input: False
 Accept wildcard characters: False
 ```
 
+### -WhatIf
+Shows what would happen if the cmdlet runs. The cmdlet is not run.
+
+```yaml
+Type: SwitchParameter
+Parameter Sets: (All)
+Aliases: wi
+
+Required: False
+Position: Named
+Default value: False
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
 ### CommonParameters
 This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable, -InformationAction, -InformationVariable, -OutVariable, -OutBuffer, -PipelineVariable, -Verbose, -WarningAction, and -WarningVariable. For more information, see [about_CommonParameters](http://go.microsoft.com/fwlink/?LinkID=113216).
 
@@ -210,7 +263,7 @@ You can pipe a PSCredential object to this cmdlet.
 ## OUTPUTS
 
 ### PSCredentialManager.Common.Credential
-Returns the stored credential. Password is filled only when you used -Password.
+Returns the stored credential without its password.
 
 ## NOTES
 

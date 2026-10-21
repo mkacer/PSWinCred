@@ -1,6 +1,7 @@
 using Microsoft.Win32.SafeHandles;
 using PSCredentialManager.Api.Extensions;
 using PSCredentialManager.Common;
+using PSCredentialManager.Common.Enum;
 using System;
 using System.Runtime.InteropServices;
 
@@ -16,7 +17,7 @@ namespace PSCredentialManager.Api
             SetHandle(preexistingHandle);
         }
 
-        internal Credential GetCredential(bool includeClearPassword, bool includeSecurePassword)
+        internal Credential GetCredential(bool includeClearPassword, bool includeSecurePassword, CredEncoding encoding = CredEncoding.Unicode)
         {
             if (IsInvalid)
             {
@@ -27,7 +28,7 @@ namespace PSCredentialManager.Api
             NativeCredential nativeCredential = (NativeCredential)Marshal.PtrToStructure(handle, typeof(NativeCredential));
 
             // Create a managed Credential type and fill it with data from the native counterpart.
-            return nativeCredential.ToCredential(includeClearPassword, includeSecurePassword);
+            return nativeCredential.ToCredential(includeClearPassword, includeSecurePassword, encoding);
         }
 
         protected override bool ReleaseHandle()
@@ -36,7 +37,7 @@ namespace PSCredentialManager.Api
             return true;
         }
 
-        public Credential[] GetCredentials(int count, bool includeClearPassword, bool includeSecurePassword)
+        public Credential[] GetCredentials(int count, bool includeClearPassword, bool includeSecurePassword, CredEncoding encoding = CredEncoding.Unicode)
         {
             if (IsInvalid)
             {
@@ -48,7 +49,7 @@ namespace PSCredentialManager.Api
             {
                 IntPtr pCred = Marshal.ReadIntPtr(handle, inx * IntPtr.Size);
                 NativeCredential nativeCredential = (NativeCredential)Marshal.PtrToStructure(pCred, typeof(NativeCredential));
-                credentials[inx] = nativeCredential.ToCredential(includeClearPassword, includeSecurePassword);
+                credentials[inx] = nativeCredential.ToCredential(includeClearPassword, includeSecurePassword, encoding);
             }
             return credentials;
         }

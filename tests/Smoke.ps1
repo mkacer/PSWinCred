@@ -8,7 +8,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$ModulePath = (Join-Path $PSScriptRoot '../out/TUN.CredentialManager/TUN.CredentialManager.psd1')
+    [string]$ModulePath = (Join-Path $PSScriptRoot '../out/StoredCredential/StoredCredential.psd1')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -36,13 +36,13 @@ function ConvertTo-PlainText([securestring]$Secure) {
 Write-Host "PowerShell $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
 Import-Module $ModulePath -Force
 
-$prefix = "TUN.CredentialManager.Smoke.$([guid]::NewGuid())"
+$prefix = "StoredCredential.Smoke.$([guid]::NewGuid())"
 $target = "$prefix.main"
 $secure = ConvertTo-SecureString 'P@ss word1' -AsPlainText -Force
 
 try {
     Test-Case 'exports the four cmdlets' {
-        $names = (Get-Command -Module TUN.CredentialManager).Name | Sort-Object
+        $names = (Get-Command -Module StoredCredential).Name | Sort-Object
         Assert-Equal 'Get-StoredCredential,Get-StrongPassword,New-StoredCredential,Remove-StoredCredential' ($names -join ',') 'cmdlets'
     }
 
@@ -100,6 +100,7 @@ try {
 
     Test-Case 'PSCredential from the pipeline' {
         $psCred = [pscredential]::new('pipe-user', $secure)
+        New-StoredCredential -Target "$prefix.pipe" -Credential $psCred | Out-Null
         $psCred | New-StoredCredential -Target "$prefix.pipe" | Out-Null
         Assert-Equal 'pipe-user' (Get-StoredCredential -Target "$prefix.pipe").UserName 'UserName'
     }
@@ -110,6 +111,38 @@ try {
         catch { $threw = $true }
         if (-not $threw) { throw 'No error.' }
         Assert-Equal $null (Get-StoredCredential -Target "$prefix.long") 'stored credential'
+    }
+
+    Test-Case 'New-StoredCredential -Password output holds no password' {
+        $result = New-StoredCredential -Target "$prefix.plain" -UserName 'u' -Password 'plain'
+        Assert-Equal $null $result.Password 'Password'
+        Assert-Equal $null $result.SecurePassword 'SecurePassword'
+        Assert-Equal 0 $result.PasswordSize 'PasswordSize'
+    }
+
+    Test-Case '-Encoding UTF8 round-trips non-ASCII passwords' {
+        $text = "p$([char]0xE4)ss$([char]0xE9)"
+        New-StoredCredential -Target "$prefix.utf8" -UserName 'u' -Password $text -Encoding UTF8 | Out-Null
+        $cred = Get-StoredCredential -Target "$prefix.utf8" -AsCredentialObject -IncludeClearPassword -Encoding UTF8
+        Assert-Equal $text $cred.Password 'Password'
+        Assert-Equal 7 $cred.PasswordSize 'PasswordSize'
+        Assert-Equal $text (ConvertTo-PlainText (Get-StoredCredential -Target "$prefix.utf8" -Encoding UTF8).Password) 'PSCredential password'
+    }
+
+    Test-Case 'the size limit applies to the encoded password' {
+        # 1281 ASCII chars are 1281 bytes in UTF-8, so they fit
+        New-StoredCredential -Target "$prefix.utf8long" -UserName 'u' -Password ('a' * 1281) -Encoding UTF8 | Out-Null
+        $threw = $false
+        try { New-StoredCredential -Target "$prefix.utf8toolong" -UserName 'u' -Password ([string][char]0xE9 * 1281) -Encoding UTF8 | Out-Null }
+        catch { $threw = $true }
+        if (-not $threw) { throw 'No error for 2562 bytes.' }
+    }
+
+    Test-Case '-WhatIf writes and deletes nothing' {
+        New-StoredCredential -Target "$prefix.whatif" -UserName 'u' -SecurePassword $secure -WhatIf
+        Assert-Equal $null (Get-StoredCredential -Target "$prefix.whatif") 'created credential'
+        Remove-StoredCredential -Target "$prefix.pipe" -WhatIf
+        Assert-Equal 'pipe-user' (Get-StoredCredential -Target "$prefix.pipe").UserName 'kept credential'
     }
 
     Test-Case 'missing target returns nothing without error' {

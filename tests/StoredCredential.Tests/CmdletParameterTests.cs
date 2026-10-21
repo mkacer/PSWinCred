@@ -79,5 +79,33 @@ namespace PSCredentialManager.Tests
             string password = (string)Invoke("Get-StrongPassword -Length 24").Single().BaseObject;
             Assert.AreEqual(24, password.Length);
         }
+
+        [TestMethod]
+        public void GetAndNewHaveEncodingDefaultingToUnicode()
+        {
+            foreach (string name in new[] { "Get-StoredCredential", "New-StoredCredential" })
+            {
+                CommandInfo command = Invoke($"Get-Command {name}").Single().BaseObject as CommandInfo;
+                Assert.AreEqual(typeof(PSCredentialManager.Common.Enum.CredEncoding), command.Parameters["Encoding"].ParameterType, name);
+            }
+        }
+
+        [TestMethod]
+        public void NewStoredCredentialAcceptsCredentialAlias()
+        {
+            CommandInfo command = Invoke("Get-Command New-StoredCredential").Single().BaseObject as CommandInfo;
+            CollectionAssert.Contains(command.Parameters["Credentials"].Aliases.ToList(), "Credential");
+        }
+
+        [TestMethod]
+        public void WhatIfNeverTouchesTheStore()
+        {
+            // On a machine without advapi32 any real call would fail, so no output and no error proves nothing was called
+            Collection<PSObject> output = Invoke(
+                "$p = ConvertTo-SecureString 'x' -AsPlainText -Force; " +
+                "New-StoredCredential -Target 'x' -SecurePassword $p -WhatIf; " +
+                "Remove-StoredCredential -Target 'x' -WhatIf");
+            Assert.IsEmpty(output);
+        }
     }
 }
