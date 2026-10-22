@@ -238,6 +238,10 @@ Describe 'Input validation' {
         { & $Command @parameters } | Should-Throw -FullyQualifiedErrorId 'EncodingNotSupported,*'
     }
 
+    It 'rejects a malformed wildcard before reading the store' {
+        { Get-WinCredential -Target 'WinCred.Test.x[1' } | Should-Throw -FullyQualifiedErrorId 'InvalidWildcard,*'
+    }
+
     # Windows reads a name only up to the first NUL, so 'name<NUL>x' would act on 'name'
     It 'rejects a NUL in the target with <Name>' -ForEach @(
         @{ Name = 'Get-WinCredential -Target'; Call = { Get-WinCredential -Target "WinCred.Test.nul`0x" } }
@@ -485,6 +489,23 @@ Describe 'Credential store' -Tag 'Store' {
             $found[0].TargetName | Should-Be (Get-TestTarget 'lit1')
         }
 
+        It 'returns one PSCredential when Windows also saved a DomainPassword credential under the name' {
+            # What 'Remember my credentials' leaves behind: Windows never returns the domain secret, so
+            # -AsPSCredential without -Type uses the credential it can read and reports no error
+            $shared = Get-TestTarget 'shared'
+            New-WinCredential -Target $shared -UserName 'test-user' -Secret $secret
+            New-WinCredential -Target $shared -Type DomainPassword -UserName $domainUser -Secret $secret
+            $found = @(Get-WinCredential -Target $shared -AsPSCredential -ErrorVariable errors)
+            Should-BeCollection -Actual $found -Count 1
+            $found[0].UserName | Should-Be 'test-user'
+            Should-BeCollection -Actual @($errors) -Count 0
+            $found = @(Get-WinCredential -Target "$shared*" -AsPSCredential -ErrorVariable errors)
+            Should-BeCollection -Actual $found -Count 1
+            Should-BeCollection -Actual @($errors) -Count 0
+            # Asked for by type, the domain credential still explains why it cannot be a PSCredential
+            { Get-WinCredential -Target $shared -Type DomainPassword -AsPSCredential } | Should-Throw -FullyQualifiedErrorId 'SecretNotReadable,*'
+        }
+
         It 'finds a DomainPassword credential by exact name without -Type' {
             $domainTarget = Get-TestTarget 'lookup-domain'
             New-WinCredential -Target $domainTarget -Type DomainPassword -UserName $domainUser -Secret $secret
@@ -649,8 +670,13 @@ Describe 'Credential store' -Tag 'Store' {
             { Get-WinCredential -Target $target -Type DomainPassword -AsPSCredential } | Should-Throw -FullyQualifiedErrorId 'SecretNotReadable,*'
         }
 
-        It 'keeps its secret when the comment changes' {
-            # CRED_PRESERVE_CREDENTIAL_BLOB keeps a secret WinCred cannot read
+        It 'refuses -AsPSCredential without -Type when no readable credential has the name' {
+            { Get-WinCredential -Target $target -AsPSCredential } | Should-Throw -FullyQualifiedErrorId 'SecretNotReadable,*'
+        }
+
+        It 'accepts a comment-only change' {
+            # Proves only that the write with CRED_PRESERVE_CREDENTIAL_BLOB succeeds. No program can read a
+            # DomainPassword secret back, so this test cannot show that the secret was kept.
             Set-WinCredential -Target $target -Type DomainPassword -Comment 'changed' -Confirm:$false
             (Get-WinCredential -Target $target -Type DomainPassword).Comment | Should-Be 'changed'
         }

@@ -25,8 +25,9 @@ namespace WinCred.Commands
             if (exception.NativeErrorCode == CredRequiresConfirmation)
             {
                 var confirmation = new ErrorRecord(exception, "RequiresConfirmation", ErrorCategory.PermissionDenied, target);
-                confirmation.ErrorDetails = new ErrorDetails(
-                    $"'{target}' requires confirmation (CRED_FLAGS_REQUIRE_CONFIRMATION), so Windows does not return it to programs.");
+                confirmation.ErrorDetails = new ErrorDetails(target == null
+                    ? "A credential requires confirmation (CRED_FLAGS_REQUIRE_CONFIRMATION), so Windows does not return it to programs."
+                    : $"'{target}' requires confirmation (CRED_FLAGS_REQUIRE_CONFIRMATION), so Windows does not return it to programs.");
                 return confirmation;
             }
 

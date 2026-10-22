@@ -35,14 +35,17 @@ SECURITY DEFAULTS
       secret, Windows keeps the stored one and WinCred never decodes it.
     - Set-WinCredential and Remove-WinCredential ask for confirmation by
       default. In scripts, add -Confirm:$false.
-    - Get-WinCredential returns no secret and no attribute values unless you
-      add -IncludeSecret or -AsPSCredential, and never returns a secret as
-      plain text. To get plain text, convert explicitly in your own code:
+    - Get-WinCredential returns no secret unless you add -IncludeSecret or
+      -AsPSCredential, and no attribute values unless you add
+      -IncludeSecret. It never returns a secret as plain text. To get plain
+      text, convert explicitly in your own code:
 
           [System.Net.NetworkCredential]::new('', $credential.Secret).Password
 
-    - Secrets never appear in verbose, debug, warning or error messages, or
-      in formatted output.
+    - The secret never appears in verbose, debug, warning or error messages,
+      or in formatted output, and messages do not reveal its length.
+      Attribute values are plain bytes: formatting or serializing a
+      credential shows them. Clear them with [Array]::Clear when done.
     - Every value is checked before the store is touched. Invalid input
       fails without writing.
     - WinCred zeroes the unmanaged copies of a secret that it makes, and
@@ -65,9 +68,11 @@ WHAT WINCRED CANNOT PROTECT AGAINST
     - Converting a secret to plain text, as shown above, creates a string
       that stays in memory until the garbage collector reuses it.
     - Windows decrypts every credential that CredEnumerateW returns. Getting
-      all credentials, or a wildcard without a literal prefix, decrypts the
-      whole store of the user into WinCred's process before WinCred zeroes
-      the secrets it does not return. Use exact targets where possible.
+      all credentials, or a wildcard without a literal ASCII prefix, decrypts
+      the whole store of the user into WinCred's process before WinCred
+      zeroes the secrets it does not return; -Type does not narrow that.
+      An exact target decrypts only credentials with that name, one per
+      type unless -Type names one. Use exact targets where possible.
     - Set-WinCredential reads the stored credential to keep the fields you
       do not change. For a Generic credential, Windows decrypts its secret
       into WinCred's process during that read, even when the secret does not

@@ -114,9 +114,18 @@ namespace WinCred.Native
         }
 
         /// <summary>Zeroes by the known size, so a secret with an embedded null is fully cleared.</summary>
+        /// <summary>Allocates nothing, so it also works while a SafeHandle releases memory under memory pressure.</summary>
         internal static void ZeroMemory(IntPtr buffer, int size)
         {
-            Marshal.Copy(new byte[size], 0, buffer, size);
+            int i = 0;
+            for (; i + sizeof(long) <= size; i += sizeof(long))
+            {
+                Marshal.WriteInt64(buffer, i, 0);
+            }
+            for (; i < size; i++)
+            {
+                Marshal.WriteByte(buffer, i, 0);
+            }
         }
     }
 

@@ -37,7 +37,7 @@ This cmdlet has no aliases.
 
 ## DESCRIPTION
 
-Changes an existing credential in Windows Credential Manager. Only the fields you specify change. Every other field keeps its stored value: the user name, the secret, the persistence, the comment, the target alias, the attributes and the flags. An empty string removes the user name or the comment.
+Changes an existing credential in Windows Credential Manager. Only the fields you specify change. Every other field keeps its stored value: the user name, the secret, the persistence, the comment, the target alias, the attributes, and the flags Windows accepts on a write (it rejects some it sets itself, such as CRED_FLAGS_WILDCARD_MATCH). A new user name also clears CRED_FLAGS_USERNAME_TARGET, which says the target is the user name. An empty string removes the user name or the comment.
 
 Without -Secret or -Credential, the stored secret is kept and never decoded. The cmdlet still reads the stored credential to keep the other fields, and for a Generic credential Windows decrypts the secret into the process during that read; WinCred zeroes it before freeing it.
 
@@ -338,6 +338,8 @@ With -PassThru, without the secret.
 ## NOTES
 
 Windows Credential Manager allows at most 2560 bytes of secret: 1280 characters in Unicode, or fewer for non-ASCII characters in UTF-8.
+
+When Windows refuses to read or write one piped credential, the cmdlet writes a ReadFailed or WriteFailed error and goes on with the next one. An unusable secret stops the cmdlet, because it would fail for every credential.
 
 The cmdlet reads the stored credential and writes it back with the changes. If another program changes the credential between those two steps, its change to the fields this cmdlet writes back is lost. If another program deletes it, the cmdlet writes a CredentialNotFound error when the secret is kept, and recreates the credential when a new secret is given.
 

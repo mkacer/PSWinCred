@@ -89,6 +89,10 @@ namespace WinCred.Commands
             {
                 error = new ErrorRecord(exception, "SecretTooLarge", ErrorCategory.InvalidArgument, Target);
             }
+            catch (CredentialReadException exception)
+            {
+                error = Errors.Native(exception, "ReadFailed", ErrorCategory.ReadError, Target);
+            }
             catch (Win32Exception exception)
             {
                 error = Errors.Native(exception, "WriteFailed", ErrorCategory.WriteError, Target);
@@ -120,7 +124,7 @@ namespace WinCred.Commands
         {
             try
             {
-                ReadResult? stored = credMan.Read(target, type, includeSecret: false, CredEncoding.Unicode);
+                ReadResult? stored = credMan.Read(target, type, includeSecret: false, includeAttributeValues: false, CredEncoding.Unicode);
                 if (stored?.Credential != null)
                 {
                     cmdlet.WriteObject(stored.Credential);

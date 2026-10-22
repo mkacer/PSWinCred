@@ -1,6 +1,8 @@
 # WinCred
 A modern, secure, auditable PowerShell interface to Windows Credential Manager.
 
+The module is named **WinCred** (`Import-Module WinCred`); this repository is [PSWinCred](https://github.com/mkacer/PSWinCred).
+
 WinCred talks to the native Credential Manager API (`CredReadW`, `CredWriteW`, `CredDeleteW`, `CredEnumerateW`, `CredFree`) and nothing else. Windows owns the credential store and its format; WinCred adds no storage of its own. Other programs, in any language, can use the same credentials through the same API: **Credential Manager is the shared interface.**
 
 WinCred is intentionally small. It is not a secret-management framework, an encrypted-file library or a vault abstraction.
@@ -16,9 +18,17 @@ The module ships two builds of WinCred.dll: `net462` for Windows PowerShell 5.1 
 
 ## Installation
 
-1. Download WinCred.zip from the releases page of this repository.
-2. Unzip it and copy the WinCred folder to a folder in `$env:PSModulePath`.
-3. Run `Import-Module WinCred`.
+1. Download WinCred.zip from the [releases page](https://github.com/mkacer/PSWinCred/releases).
+2. Clear the downloaded-from-the-internet mark before you unzip it: `Unblock-File .\WinCred.zip`. Windows copies the mark to every extracted file, and then the RemoteSigned execution policy blocks the module's script files, and Windows PowerShell 5.1 may refuse to load WinCred.dll.
+3. Unzip it and copy the WinCred folder to a folder in `$env:PSModulePath`, for example `$HOME\Documents\PowerShell\Modules` (PowerShell 7) or `$HOME\Documents\WindowsPowerShell\Modules` (Windows PowerShell 5.1).
+4. Run `Import-Module WinCred`.
+
+### Uninstallation
+
+1. Close every PowerShell session that imported WinCred, or run `Remove-Module WinCred` in each.
+2. Delete the WinCred folder you copied: `(Get-Module WinCred -ListAvailable).ModuleBase | Remove-Item -Recurse` lists and removes every copy PowerShell can find.
+
+Uninstalling WinCred does not remove the credentials you stored with it; they belong to Windows Credential Manager. Remove them first with `Remove-WinCredential` if you no longer need them.
 
 ## Usage
 
@@ -51,8 +61,8 @@ Full help: `Get-Help Get-WinCredential -Full` and `Get-Help about_WinCred`. The 
 * `New-WinCredential` fails if the credential exists. `Set-WinCredential` fails if it does not, and changes only the fields you name: without a new secret, Windows keeps the stored one and WinCred never decodes it.
 * New credentials persist for the logon session. Longer persistence MUST be requested with `-Persist`.
 * `Set-WinCredential` and `Remove-WinCredential` ask for confirmation by default.
-* `Get-WinCredential` returns no secret and no attribute values unless you add `-IncludeSecret` or `-AsPSCredential`, and never returns plain text. An exact target is read with `CredReadW`, so Windows decrypts only that credential.
-* Secrets never appear in messages, errors or formatted output. WinCred zeroes the unmanaged copies of a secret that it makes, and every decrypted secret and attribute value in a buffer from Windows, before freeing them. Every buffer from Windows is released with `CredFree`.
+* `Get-WinCredential` returns no secret unless you add `-IncludeSecret` or `-AsPSCredential`, and no attribute values unless you add `-IncludeSecret`. It never returns a secret as plain text. An exact target is read with `CredReadW`, so Windows decrypts only credentials with exactly that name: one per type, or only the type you name with `-Type`.
+* The secret never appears in messages, errors or formatted output, and messages do not reveal its length. Attribute values, returned only with `-IncludeSecret`, are plain bytes: formatting or serializing a credential shows them, so clear them (`[Array]::Clear`) when they may be secret. WinCred zeroes the unmanaged copies of a secret that it makes, and every decrypted secret and attribute value in a buffer from Windows, before freeing them. Every buffer from Windows is released with `CredFree`.
 * Secrets are never altered to fit an encoding: invalid text fails on write, and invalid bytes fail on read.
 * Invalid input fails before the store is touched. Windows' limits are checked up front (see [Limits](#limits)), and so are control characters and the `DOMAIN\user` or `user@domain` form of DomainPassword user names.
 
@@ -64,7 +74,7 @@ Credential Manager protects credentials at rest for a user account. It does not 
 * An administrator, or a program running as SYSTEM, can get the secrets of other users, for example by reading process memory.
 * A SecureString limits how long plain text sits in memory, but it is not a secret boundary. PowerShell, .NET and the programs that use a credential make plain-text copies that WinCred cannot zero. Microsoft [recommends against SecureString](https://github.com/dotnet/platform-compat/blob/master/docs/DE0001.md) for new .NET code.
 * Converting a secret to plain text creates a string that stays in memory until the garbage collector reuses it.
-* Windows decrypts every credential that `CredEnumerateW` returns. `Get-WinCredential` without `-Target`, or with a wildcard that has no literal prefix, decrypts the user's whole store into the process before WinCred zeroes the secrets it does not return.
+* Windows decrypts every credential that `CredEnumerateW` returns. `Get-WinCredential` without `-Target`, or with a wildcard that has no literal ASCII prefix (the prefix ends at the first wildcard or non-ASCII character), decrypts the user's whole store into the process before WinCred zeroes the secrets it does not return. `-Type` does not narrow what Windows decrypts for a wildcard.
 * `Set-WinCredential` reads the stored credential to keep the fields you do not change. For a Generic credential, Windows decrypts its secret into the process during that read, even when the secret does not change; WinCred does not decode it and zeroes it before freeing it.
 * `Enterprise` credentials roam with the user profile, so copies end up on other computers and in profile storage.
 * Windows has no create-only or compare-and-swap write. Another program can change a credential between `New-WinCredential`'s existence check and its write, or between `Set-WinCredential`'s read and its write.
@@ -157,7 +167,7 @@ foreach ($name in 'DOTNET_CLI_TELEMETRY_OPTOUT', 'TESTINGPLATFORM_TELEMETRY_OPTO
 - A thin layer over the native CredMan API: SafeHandle-owned buffers, `CREDENTIAL_ATTRIBUTEW` attributes read into managed objects, Win32 error messages
 - Secure defaults: required secret, no plain-text input or output, Session persistence, no generated or implied values
 - `-Encoding` (Unicode or UTF8, strict in both directions), `-WhatIf`/`-Confirm`, `-PassThru`, wildcard and literal targets, pipeline from Get- to Set- and Remove-WinCredential
-- Decrypted secrets and attribute values zeroed in Windows' buffers before `CredFree`; exact lookups decrypt only the requested credential
+- Decrypted secrets and attribute values zeroed in Windows' buffers before `CredFree`; exact lookups decrypt only credentials with the requested name
 - Measured limits, control characters and DomainPassword user names checked before the store is touched
 - Builds for net462 (Windows PowerShell 5.1) and net8.0 (PowerShell 7.4+); no runtime dependencies
 - Tests: MSTest on Microsoft.Testing.Platform for the native layer, Pester 6 against the real credential store in both editions; PSScriptAnalyzer; .NET analyzers at the recommended level; CodeQL; pinned tools installed with PSResourceGet and verified against pinned signers before every use; help built with Microsoft.PowerShell.PlatyPS 1.0

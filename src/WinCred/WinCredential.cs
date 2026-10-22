@@ -48,12 +48,14 @@ namespace WinCred
 
     /// <summary>
     /// A CREDENTIAL_ATTRIBUTEW entry. Its value belongs to the program that wrote it and may be secret,
-    /// so Value is filled only on request, like the credential's secret.
+    /// so Value is filled only with -IncludeSecret. Value is a copy that the caller owns: clear it with
+    /// [Array]::Clear($attribute.Value, 0, $attribute.Value.Length) when done. Unlike the secret, it is
+    /// plain bytes, so formatting or serializing the attribute shows it.
     /// </summary>
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1711", Justification = "Mirrors CREDENTIAL_ATTRIBUTEW in wincred.h.")]
     public sealed class WinCredentialAttribute
     {
-        internal WinCredentialAttribute(string keyword, uint flags, int valueLength, IReadOnlyList<byte>? value)
+        internal WinCredentialAttribute(string keyword, uint flags, int valueLength, byte[]? value)
         {
             Keyword = keyword;
             Flags = flags;
@@ -64,7 +66,8 @@ namespace WinCred
         public string Keyword { get; }
         public uint Flags { get; }
         public int ValueLength { get; }
-        public IReadOnlyList<byte>? Value { get; }
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1819", Justification = "A mutable copy, so the caller can clear a secret value.")]
+        public byte[]? Value { get; }
 
         public override string ToString() => Keyword;
     }

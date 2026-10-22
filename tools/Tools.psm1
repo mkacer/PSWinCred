@@ -92,7 +92,7 @@ function Assert-ToolSignature {
     $fileSigners = $tool['FileSigners']
     if (-not $fileSigners) { $fileSigners = @{} }
     $moduleDir = Get-ToolDirectory -Name $Name -ToolsPath $ToolsPath
-    if (-not (Test-Path (Join-Path $moduleDir "$Name.psd1"))) {
+    if (-not (Test-Path -LiteralPath (Join-Path $moduleDir "$Name.psd1") -PathType Leaf)) {
         throw "$Name $($tool.Version) is not installed in '$moduleDir'. Run tools/Install-Tools.ps1."
     }
     $moduleDir = (Resolve-Path -LiteralPath $moduleDir).ProviderPath
@@ -109,7 +109,15 @@ function Assert-ToolSignature {
         }
     }
     $checked = 0
-    foreach ($file in Get-ChildItem -Path $moduleDir -Recurse -File -Force) {
+    foreach ($item in Get-ChildItem -LiteralPath $moduleDir -Recurse -Force) {
+        # A symbolic link or junction lets Import-Module load files this walk never sees: PowerShell 6 and
+        # later do not recurse into linked folders. Packages from PowerShell Gallery contain no links.
+        if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            $failures.Add("$($item.FullName.Substring($moduleDir.Length).TrimStart('\', '/'))`: is a symbolic link, junction or other reparse point")
+            continue
+        }
+        if ($item.PSIsContainer) { continue }
+        $file = $item
         if ($NonCodeExtensions -contains $file.Extension.ToLowerInvariant()) { continue }
         $checked++
 
@@ -139,6 +147,9 @@ function Assert-ToolSignature {
         }
     }
 
+    if ($checked -eq 0) {
+        $failures.Add('no file was verified')
+    }
     if ($failures.Count -gt 0) {
         throw ("$Name $($tool.Version) failed verification in $($failures.Count) of $checked file(s) in '$moduleDir'. " +
             'Nothing was imported. If the files were changed, delete the folder and run tools/Install-Tools.ps1 again:' +
@@ -157,7 +168,7 @@ function Import-Tool {
 
     Assert-ToolSignature -Name $Name -ToolsPath $ToolsPath
     $manifest = Join-Path (Get-ToolDirectory -Name $Name -ToolsPath $ToolsPath) "$Name.psd1"
-    Import-Module $manifest -Force -Global
+    Import-Module -Name $manifest -Force -Global
 }
 
 Export-ModuleMember -Function Assert-ToolSignature, Import-Tool, Get-ToolManifest

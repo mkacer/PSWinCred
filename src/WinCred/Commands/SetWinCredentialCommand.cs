@@ -148,14 +148,22 @@ namespace WinCred.Commands
             {
                 error = new ErrorRecord(exception, "SecretTooLarge", ErrorCategory.InvalidArgument, Target);
             }
+            catch (CredentialReadException exception)
+            {
+                // Like CredentialNotFound: reported per item, so one failing credential in a pipeline does not
+                // stop the others. Nothing was written to this one.
+                WriteError(Errors.Native(exception, "ReadFailed", ErrorCategory.ReadError, Target));
+                return;
+            }
             catch (Win32Exception exception)
             {
-                error = Errors.Native(exception, "WriteFailed", ErrorCategory.WriteError, Target);
+                WriteError(Errors.Native(exception, "WriteFailed", ErrorCategory.WriteError, Target));
+                return;
             }
 
             if (error != null)
             {
-                // Nothing was written; stop rather than continue with a different result than requested
+                // The secret is unusable, and it is the same for every piped credential; stop
                 ThrowTerminatingError(error);
             }
 

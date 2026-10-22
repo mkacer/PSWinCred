@@ -51,11 +51,11 @@ This cmdlet has no aliases.
 
 Gets credentials from Windows Credential Manager for the current user.
 
-By default, it returns WinCredential objects without the secret and without attribute values. Add -IncludeSecret to fill the Secret property with a SecureString, or -AsPSCredential to get PSCredential objects. The cmdlet never returns the secret as plain text.
+By default, it returns WinCredential objects without the secret and without attribute values. Add -IncludeSecret to fill the Secret property with a SecureString and the attribute values, or -AsPSCredential to get PSCredential objects. The cmdlet never returns the secret as plain text.
 
 -Target accepts wildcards; -LiteralTarget does not. An exact target that does not exist writes a CredentialNotFound error; a wildcard without matches returns nothing.
 
-An exact target is read with CredReadW, once per type, so Windows decrypts only that credential. A wildcard is read with CredEnumerateW, filtered by the pattern's literal prefix where it has one; Windows decrypts every credential the filter passes. Without -Target, Windows decrypts the whole store of the current user. WinCred zeroes each decrypted secret it does not return before it frees Windows' buffer.
+An exact target is read with CredReadW, once per type or only for the types named with -Type, so Windows decrypts only credentials with exactly that name. A wildcard is read with CredEnumerateW, filtered by the pattern's literal prefix where it has one: the prefix ends at the first wildcard or non-ASCII character. Windows decrypts every credential the filter passes, whatever -Type says. Without -Target, Windows decrypts the whole store of the current user. WinCred zeroes each decrypted secret it does not return before it frees Windows' buffer.
 
 ## EXAMPLES
 
@@ -106,7 +106,7 @@ Both commands get only the target server[1].
 
 ### -AsPSCredential
 
-Returns PSCredential objects. Credentials without a user name, and DomainPassword or DomainCertificate credentials, whose secret Windows does not return, write an error instead.
+Returns PSCredential objects. A credential without a user name writes a NoUserName error instead. Windows never returns the secret of DomainPassword and DomainCertificate credentials, so without -Type the cmdlet leaves those out whenever a credential it can read has the same name; Windows often saves a DomainPassword credential next to one you stored. If nothing readable has the name, or you name the type with -Type, they write a SecretNotReadable error. Attribute values are not copied.
 
 ```yaml
 Type: System.Management.Automation.SwitchParameter
@@ -156,7 +156,7 @@ HelpMessage: ''
 
 ### -IncludeSecret
 
-Fills the Secret property with the secret as a SecureString, and fills the Value of each attribute. Without it, the cmdlet decodes no secret and returns no attribute values.
+Fills the Secret property with the secret as a SecureString, and fills the Value of each attribute. Without it, the cmdlet decodes no secret and returns no attribute values. Attribute values are plain bytes that the caller owns: formatting or serializing the credential shows them, and [Array]::Clear erases them.
 
 ```yaml
 Type: System.Management.Automation.SwitchParameter
@@ -293,6 +293,10 @@ With -AsPSCredential.
 ## NOTES
 
 Windows returns the secret of DomainPassword and DomainCertificate credentials only to the Local Security Authority, so their Secret property is always empty.
+
+A malformed wildcard, such as an unclosed bracket, writes an InvalidWildcard error before the store is read.
+
+Wildcards ignore case the way .NET does, but the literal prefix that limits what Windows returns is compared the way Windows does. A few non-ASCII characters that .NET folds onto an ASCII letter, such as the Kelvin sign (U+212A) onto k, can therefore match a pattern without Windows returning that credential for it. A pattern without a literal prefix, such as *x, still finds it.
 
 ## RELATED LINKS
 

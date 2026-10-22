@@ -41,22 +41,34 @@ namespace WinCred.Native
             CredFree(buffer);
         }
 
+        // Field offsets, computed once when the type is first used, so scrubbing reads fields without allocating:
+        // ReleaseHandle can run under memory pressure, where an allocation that fails would skip the zeroing.
+        private static readonly int BlobSizeOffset = Marshal.OffsetOf<CREDENTIALW>(nameof(CREDENTIALW.CredentialBlobSize)).ToInt32();
+        private static readonly int BlobOffset = Marshal.OffsetOf<CREDENTIALW>(nameof(CREDENTIALW.CredentialBlob)).ToInt32();
+        private static readonly int AttributeCountOffset = Marshal.OffsetOf<CREDENTIALW>(nameof(CREDENTIALW.AttributeCount)).ToInt32();
+        private static readonly int AttributesOffset = Marshal.OffsetOf<CREDENTIALW>(nameof(CREDENTIALW.Attributes)).ToInt32();
+        private static readonly int AttributeSize = Marshal.SizeOf<CREDENTIAL_ATTRIBUTEW>();
+        private static readonly int ValueSizeOffset = Marshal.OffsetOf<CREDENTIAL_ATTRIBUTEW>(nameof(CREDENTIAL_ATTRIBUTEW.ValueSize)).ToInt32();
+        private static readonly int ValueOffset = Marshal.OffsetOf<CREDENTIAL_ATTRIBUTEW>(nameof(CREDENTIAL_ATTRIBUTEW.Value)).ToInt32();
+
         protected static void ScrubSecret(IntPtr credential)
         {
-            CREDENTIALW native = Marshal.PtrToStructure<CREDENTIALW>(credential);
-            if (native.CredentialBlob != IntPtr.Zero && native.CredentialBlobSize > 0)
-            {
-                BlobEncoding.ZeroMemory(native.CredentialBlob, (int)native.CredentialBlobSize);
-            }
+            ZeroField(Marshal.ReadIntPtr(credential, BlobOffset), Marshal.ReadInt32(credential, BlobSizeOffset));
 
-            int attributeSize = Marshal.SizeOf<CREDENTIAL_ATTRIBUTEW>();
-            for (int i = 0; i < native.AttributeCount && native.Attributes != IntPtr.Zero; i++)
+            uint count = (uint)Marshal.ReadInt32(credential, AttributeCountOffset);
+            IntPtr attributes = Marshal.ReadIntPtr(credential, AttributesOffset);
+            for (uint i = 0; i < count && attributes != IntPtr.Zero; i++)
             {
-                CREDENTIAL_ATTRIBUTEW attribute = Marshal.PtrToStructure<CREDENTIAL_ATTRIBUTEW>(native.Attributes + i * attributeSize);
-                if (attribute.Value != IntPtr.Zero && attribute.ValueSize > 0)
-                {
-                    BlobEncoding.ZeroMemory(attribute.Value, (int)attribute.ValueSize);
-                }
+                IntPtr attribute = attributes + (int)i * AttributeSize;
+                ZeroField(Marshal.ReadIntPtr(attribute, ValueOffset), Marshal.ReadInt32(attribute, ValueSizeOffset));
+            }
+        }
+
+        private static void ZeroField(IntPtr value, int size)
+        {
+            if (value != IntPtr.Zero && size > 0)
+            {
+                BlobEncoding.ZeroMemory(value, size);
             }
         }
     }

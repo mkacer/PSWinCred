@@ -52,7 +52,14 @@ namespace WinCred.Commands
 
         private readonly CredMan credMan = new CredMan();
 
-        private bool IncludeSecretValues => IncludeSecret || AsPSCredential;
+        private bool DecodeSecret => IncludeSecret || AsPSCredential;
+
+        // A PSCredential has no place for attribute values, so -AsPSCredential does not copy them
+        private bool IncludeAttributeValues => IncludeSecret;
+
+        // Without -Type, -AsPSCredential leaves out the types whose secret Windows never returns, so a
+        // DomainPassword credential that Windows saved under the same name does not turn into an error
+        private bool SkipUnreadable(HashSet<CredType>? types) => AsPSCredential && types == null;
 
         protected override void ProcessRecord()
         {
@@ -86,6 +93,17 @@ namespace WinCred.Commands
                 if (WildcardPattern.ContainsWildcardCharacters(target))
                 {
                     var pattern = new WildcardPattern(target, WildcardOptions.IgnoreCase | WildcardOptions.CultureInvariant);
+                    try
+                    {
+                        // WildcardPattern parses on first use; parse now, so a malformed pattern fails the same
+                        // way whether or not a stored name reaches the matcher
+                        pattern.IsMatch(string.Empty);
+                    }
+                    catch (WildcardPatternException exception)
+                    {
+                        WriteError(new ErrorRecord(exception, "InvalidWildcard", ErrorCategory.InvalidArgument, target));
+                        continue;
+                    }
                     WriteMatches(TargetFilter.ForPattern(target), pattern.IsMatch, types);
                 }
                 else
@@ -113,12 +131,13 @@ namespace WinCred.Commands
             Win32Exception? rejected = null;
             int rejectedCount = 0;
             CredType[] candidates = types?.ToArray() ?? CredMan.AllTypes;
+            var results = new List<ReadResult>();
             foreach (CredType type in candidates)
             {
                 ReadResult? result;
                 try
                 {
-                    result = credMan.Read(target, type, IncludeSecretValues, Encoding);
+                    result = credMan.Read(target, type, DecodeSecret, IncludeAttributeValues, Encoding);
                 }
                 catch (Win32Exception exception) when (types == null && exception.NativeErrorCode == NativeMethods.ERROR_INVALID_PARAMETER)
                 {
@@ -139,8 +158,19 @@ namespace WinCred.Commands
                 if (result != null)
                 {
                     found = true;
-                    Emit(result);
+                    results.Add(result);
                 }
+            }
+
+            bool hasReadable = results.Any(r => r.Credential != null && WinCredential.IsSecretReadable(r.Credential.Type));
+            foreach (ReadResult result in results)
+            {
+                // Report an unreadable credential only when it is all there is, so the caller learns why
+                if (SkipUnreadable(types) && hasReadable && result.Credential != null && !WinCredential.IsSecretReadable(result.Credential.Type))
+                {
+                    continue;
+                }
+                Emit(result);
             }
 
             if (!found && !failed)
@@ -162,7 +192,11 @@ namespace WinCred.Commands
             List<ReadResult> results;
             try
             {
-                results = credMan.Enumerate(filter, (name, type) => (types == null || types.Contains(type)) && matchTarget(name), IncludeSecretValues, Encoding);
+                bool skipUnreadable = SkipUnreadable(types);
+                results = credMan.Enumerate(
+                    filter,
+                    (name, type) => (types == null || types.Contains(type)) && (!skipUnreadable || WinCredential.IsSecretReadable(type)) && matchTarget(name),
+                    DecodeSecret, IncludeAttributeValues, Encoding);
             }
             catch (Win32Exception exception)
             {

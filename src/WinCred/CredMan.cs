@@ -23,12 +23,17 @@ namespace WinCred
         };
 
         private readonly ICredentialApi api;
+        private readonly Action<IntPtr, int> freeSecretMemory;
 
         internal CredMan() : this(NativeCredentialApi.Instance) { }
 
-        internal CredMan(ICredentialApi api)
+        internal CredMan(ICredentialApi api) : this(api, (memory, size) => Marshal.FreeCoTaskMem(memory)) { }
+
+        /// <summary>Tests pass <paramref name="freeSecretMemory"/> to see an encoded secret just before it is freed.</summary>
+        internal CredMan(ICredentialApi api, Action<IntPtr, int> freeSecretMemory)
         {
             this.api = api;
+            this.freeSecretMemory = freeSecretMemory;
         }
 
         /// <summary>
@@ -36,7 +41,7 @@ namespace WinCred
         /// Returns null when it does not exist.
         /// </summary>
         /// <exception cref="Win32Exception">CredReadW failed for another reason.</exception>
-        internal ReadResult? Read(string targetName, CredType type, bool includeSecret, CredEncoding encoding)
+        internal ReadResult? Read(string targetName, CredType type, bool includeSecret, bool includeAttributeValues, CredEncoding encoding)
         {
             CheckName(targetName);
             int error = api.Read(targetName, type, out SingleCredentialBuffer buffer);
@@ -51,7 +56,7 @@ namespace WinCred
                     throw new Win32Exception(error);
                 }
 
-                return Convert(buffer.Read(), includeSecret, encoding);
+                return Convert(buffer.Read(), includeSecret, includeAttributeValues, encoding);
             }
         }
 
@@ -61,7 +66,7 @@ namespace WinCred
         /// only for those <paramref name="match"/> accepts.
         /// </summary>
         /// <exception cref="Win32Exception">CredEnumerateW failed.</exception>
-        internal List<ReadResult> Enumerate(string? filter, Func<string, CredType, bool> match, bool includeSecret, CredEncoding encoding)
+        internal List<ReadResult> Enumerate(string? filter, Func<string, CredType, bool> match, bool includeSecret, bool includeAttributeValues, CredEncoding encoding)
         {
             CheckName(filter);
             var results = new List<ReadResult>();
@@ -82,7 +87,7 @@ namespace WinCred
                     CREDENTIALW native = Marshal.PtrToStructure<CREDENTIALW>(buffer[i]);
                     if (match(Marshal.PtrToStringUni(native.TargetName) ?? "", (CredType)native.Type))
                     {
-                        results.Add(Convert(native, includeSecret, encoding));
+                        results.Add(Convert(native, includeSecret, includeAttributeValues, encoding));
                     }
                 }
             }
@@ -118,7 +123,7 @@ namespace WinCred
                     }
                     if (error != ERROR_NOT_FOUND)
                     {
-                        throw new Win32Exception(error);
+                        throw new CredentialReadException(error);
                     }
                 }
 
@@ -172,7 +177,7 @@ namespace WinCred
                     }
                     if (error != 0)
                     {
-                        throw new Win32Exception(error);
+                        throw new CredentialReadException(error);
                     }
 
                     // Start from the stored record. Its strings and attributes stay in Windows' buffer,
@@ -185,6 +190,8 @@ namespace WinCred
                     if (update.SetUserName)
                     {
                         native.UserName = AllocString(update.UserName, strings);
+                        // The flag says the target is the user name; that no longer holds for a new user name
+                        native.Flags &= ~CRED_FLAGS_USERNAME_TARGET;
                     }
                     if (update.SetComment)
                     {
@@ -254,25 +261,24 @@ namespace WinCred
             }
         }
 
-        private static IntPtr EncodeSecret(SecureString secret, CredEncoding encoding, out uint size)
+        private IntPtr EncodeSecret(SecureString secret, CredEncoding encoding, out uint size)
         {
             IntPtr blob = BlobEncoding.Encode(secret, encoding, out size);
             if (size > CRED_MAX_CREDENTIAL_BLOB_SIZE)
             {
-                uint tooLarge = size;
                 FreeSecret(blob, size);
                 size = 0;
-                throw new SecretTooLargeException(tooLarge);
+                throw new SecretTooLargeException();
             }
             return blob;
         }
 
-        private static void FreeSecret(IntPtr blob, uint size)
+        private void FreeSecret(IntPtr blob, uint size)
         {
             if (blob != IntPtr.Zero)
             {
                 BlobEncoding.ZeroMemory(blob, (int)size);
-                Marshal.FreeCoTaskMem(blob);
+                freeSecretMemory(blob, (int)size);
             }
         }
 
@@ -288,7 +294,7 @@ namespace WinCred
             return p;
         }
 
-        private static ReadResult Convert(CREDENTIALW native, bool includeSecret, CredEncoding encoding)
+        private static ReadResult Convert(CREDENTIALW native, bool includeSecret, bool includeAttributeValues, CredEncoding encoding)
         {
             string targetName = Marshal.PtrToStringUni(native.TargetName) ?? "";
             try
@@ -317,7 +323,7 @@ namespace WinCred
                     Marshal.PtrToStringUni(native.Comment),
                     Marshal.PtrToStringUni(native.TargetAlias),
                     ToDateTimeOffset(native.LastWritten),
-                    ReadAttributes(native, includeSecret),
+                    ReadAttributes(native, includeAttributeValues),
                     secret);
                 return new ReadResult(targetName, credential, secretError);
             }
@@ -351,7 +357,7 @@ namespace WinCred
                 }
                 attributes[i] = new WinCredentialAttribute(
                     Marshal.PtrToStringUni(attribute.Keyword) ?? "", attribute.Flags, (int)attribute.ValueSize,
-                    value == null ? null : Array.AsReadOnly(value));
+                    value);
             }
             return attributes;
         }
@@ -389,7 +395,10 @@ namespace WinCred
 
     /// <summary>
     /// Builds CredEnumerateW filters. Measured: Windows treats only a trailing "*" as a wildcard, ignores case,
-    /// and treats "[" and "?" literally.
+    /// and treats "[" and "?" literally. Known gap (documented in Get-WinCredential's help): .NET folds a few
+    /// non-ASCII characters onto ASCII letters, such as the Kelvin sign onto k, and Windows presumably does not,
+    /// so the filter can leave out a name the pattern matches. Ending the prefix at every such letter would make
+    /// most prefixes empty and decrypt the whole store instead.
     /// </summary>
     internal static class TargetFilter
     {
@@ -426,10 +435,17 @@ namespace WinCred
 
     internal sealed class SecretTooLargeException : ArgumentException
     {
-        internal SecretTooLargeException(uint size)
-            : base($"The encoded secret is {size} bytes; Windows Credential Manager allows at most {CRED_MAX_CREDENTIAL_BLOB_SIZE} bytes.")
+        // The message leaves out the secret's actual size, which would tell its length
+        internal SecretTooLargeException()
+            : base($"The encoded secret exceeds the {CRED_MAX_CREDENTIAL_BLOB_SIZE} bytes Windows Credential Manager allows.")
         {
         }
+    }
+
+    /// <summary>CredReadW failed while New- or Set-WinCredential prepared a write, so nothing was written.</summary>
+    internal sealed class CredentialReadException : Win32Exception
+    {
+        internal CredentialReadException(int error) : base(error) { }
     }
 
     internal sealed class CredentialExistsException : InvalidOperationException
