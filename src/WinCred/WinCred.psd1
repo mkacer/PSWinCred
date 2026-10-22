@@ -55,13 +55,13 @@ PrivateData = @{
         Tags = 'Windows','Credential','Credentials','CredentialManager','CredMan','WinCred','Security','PSEdition_Desktop','PSEdition_Core'
 
         # A URL to the license for this module.
-        LicenseUri = 'https://github.com/mkacer/PSWinCred/blob/master/License'
+        LicenseUri = 'https://github.com/mkacer/PSWinCred/blob/main/License'
 
         # A URL to the main website for this project.
         ProjectUri = 'https://github.com/mkacer/PSWinCred'
 
         # ReleaseNotes of this module
-        ReleaseNotes = 'https://github.com/mkacer/PSWinCred/blob/master/README.md#history'
+        ReleaseNotes = 'https://github.com/mkacer/PSWinCred/blob/main/README.md#history'
 
     } # End of PSData hashtable
 
