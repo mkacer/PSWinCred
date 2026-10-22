@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/WinCred/WinCred.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/WinCred.Native.Tests/WinCred.Native.Tests.csproj" />
+  </Folder>
+</Solution>

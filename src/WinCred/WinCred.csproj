@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- net462 is loaded by Windows PowerShell 5.1, net8.0 by PowerShell 7.4 and later. -->
+    <TargetFrameworks>net462;net8.0</TargetFrameworks>
+    <AssemblyName>WinCred</AssemblyName>
+    <RootNamespace>WinCred</RootNamespace>
+    <Product>WinCred</Product>
+    <Description>A secure PowerShell interface to Windows Credential Manager</Description>
+    <Nullable>enable</Nullable>
+    <!-- Secrets are encoded directly between unmanaged buffers. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Microsoft's PowerShell reference assemblies, compile-time only. They are not shipped:
+         PowerShell itself provides System.Management.Automation at run time. -->
+    <PackageReference Include="PowerShellStandard.Library" Version="5.1.1" PrivateAssets="all" ExcludeAssets="runtime" />
+    <!-- The .NET Framework 4.6.2 reference assemblies, compile-time only. The SDK adds this package by itself only
+         where the targeting pack is missing (as on Linux), which would make packages.lock.json differ by OS. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" Condition="'$(TargetFramework)' == 'net462'" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="WinCred.Native.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="WinCred.psd1;WinCred.psm1;WinCred.Format.ps1xml;en-US\about_WinCred.help.txt" />
+  </ItemGroup>
+
+</Project>
