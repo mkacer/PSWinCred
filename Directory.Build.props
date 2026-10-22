@@ -11,7 +11,7 @@
     <!-- The product version stays 1.0.0 in every build, instead of 1.0.0+<commit>: code signing (SignPath)
          enforces the same product version on each build. The commit is in the release and the CI run. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
-    <!-- Lock the whole package graph; CI (GitHub sets CI=true) fails if packages.lock.json is out of date -->
+    <!-- Lock the package graph of the shipped module; CI (GitHub sets CI=true) fails if packages.lock.json is out of date -->
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
   </PropertyGroup>

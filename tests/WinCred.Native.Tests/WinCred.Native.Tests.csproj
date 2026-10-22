@@ -13,6 +13,9 @@
     <NoWarn>$(NoWarn);CA1416</NoWarn>
     <!-- Constant arrays in assertions are clearer than static fields; performance does not matter here. -->
     <NoWarn>$(NoWarn);CA1861</NoWarn>
+    <!-- No lock file: on Windows the net462 test executable also restores for win-x86, so a lock file differs by
+         OS. The package versions are exact, and the tests are not shipped; the module's packages stay locked. -->
+    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
   </PropertyGroup>
 
   <ItemGroup>

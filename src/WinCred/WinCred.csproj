@@ -16,6 +16,9 @@
     <!-- Microsoft's PowerShell reference assemblies, compile-time only. They are not shipped:
          PowerShell itself provides System.Management.Automation at run time. -->
     <PackageReference Include="PowerShellStandard.Library" Version="5.1.1" PrivateAssets="all" ExcludeAssets="runtime" />
+    <!-- The .NET Framework 4.6.2 reference assemblies, compile-time only. The SDK adds this package by itself only
+         where the targeting pack is missing (as on Linux), which would make packages.lock.json differ by OS. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" Condition="'$(TargetFramework)' == 'net462'" />
   </ItemGroup>
 
   <ItemGroup>
