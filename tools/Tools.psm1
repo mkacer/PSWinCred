@@ -66,6 +66,24 @@ function Get-RootCertificate {
     }
 }
 
+function Get-EmbeddedSigner {
+    <#
+    .SYNOPSIS
+        Returns the certificate of the Authenticode signature embedded in a file, or $null when it has none.
+        It does not validate the signature; callers check validity separately.
+    #>
+    [OutputType([System.Security.Cryptography.X509Certificates.X509Certificate2])]
+    param([Parameter(Mandatory)][string]$Path)
+
+    try {
+        [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+            [System.Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile($Path))
+    }
+    catch [System.Security.Cryptography.CryptographicException] {
+        $null
+    }
+}
+
 function Assert-ToolSignature {
     <#
     .SYNOPSIS
@@ -122,7 +140,7 @@ function Assert-ToolSignature {
         $checked++
 
         $relative = $file.FullName.Substring($moduleDir.Length).TrimStart('\', '/').Replace('\', '/')
-        $signature = Get-AuthenticodeSignature -FilePath $file.FullName
+        $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
         if ($signature.Status -ne 'Valid') {
             $failures.Add("$relative`: signature status $($signature.Status)")
             continue
@@ -130,6 +148,21 @@ function Assert-ToolSignature {
 
         $signer = $signature.SignerCertificate
         $signerAllowed = if ($fileSigners.ContainsKey($relative)) { @($fileSigners[$relative]) } elseif ($signerPin) { @($signerPin) } else { $null }
+        # PSObject lookup: reading a property the Signature object lacks would throw under strict mode
+        $typeProperty = $signature.PSObject.Properties['SignatureType']
+        $isCatalog = $null -ne $typeProperty -and "$($typeProperty.Value)" -eq 'Catalog'
+        if ($signerAllowed -and $isCatalog) {
+            # Measured on GitHub's windows-2025 image: Windows lists PSScriptAnalyzer's Newtonsoft.Json.dll in a
+            # system catalog, and Get-AuthenticodeSignature then reports the catalog's signer (Microsoft Windows)
+            # instead of the file's own. The catalog vouches for the file's content; the pin is about who signed
+            # the file, so compare the signer embedded in it. That signature itself is not re-verified: at worst
+            # another file that Windows lists in a catalog, which is a Windows file, could carry a copied one.
+            $signer = Get-EmbeddedSigner -Path $file.FullName
+            if (-not $signer) {
+                $failures.Add("$relative`: Windows vouches for it through a catalog, but it carries no embedded signature to match the pin")
+                continue
+            }
+        }
         if ($signerAllowed) {
             if ($signerAllowed -notcontains $signer.Thumbprint) {
                 $failures.Add("$relative`: signed by $($signer.Thumbprint) ('$($signer.Subject)')")
